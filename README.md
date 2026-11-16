@@ -2,7 +2,7 @@
 
 API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Documentação oficial, regras e histórias ficam na coordenação (`../_bmad-output/`, `../.claude/rules/`).
 
-Estado atual (DEV-001 e DEV-003): bootstrap, composição de módulos, módulo técnico `health` e adaptador de persistência PostgreSQL/Prisma sem modelos. Sem domínio, tabelas financeiras, autenticação, worker ou rotas financeiras.
+Estado atual (DEV-001, DEV-003 e DEV-005): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness) e adaptador de persistência PostgreSQL/Prisma sem modelos. Sem domínio, tabelas financeiras, autenticação, worker ou rotas financeiras.
 
 ## Runtime e versões (PD-02, resolvida na DEV-001)
 
@@ -17,6 +17,7 @@ Estado atual (DEV-001 e DEV-003): bootstrap, composição de módulos, módulo t
 | Prisma (`prisma`, `@prisma/client`, `@prisma/adapter-pg`) | 7.10.1 |
 | PostgreSQL (testes e smoke) | imagem `postgres:18.6-alpine` |
 | Testcontainers (`testcontainers`, `@testcontainers/postgresql`) | 12.2.1 |
+| PactumJS (`pactum`) | 3.9.1 |
 
 Dependências são fixadas com versão exata (`.npmrc`: `save-exact=true`, `engine-strict=true`). Atenção: o dist-tag `latest` do pacote `prisma` aponta para um release candidate da linha 8; sempre instalar com versão explícita. Atualizações exigem verificação de compatibilidade e registro em história.
 
@@ -59,10 +60,30 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 
 ## Testes
 
-- `test/unit/`: configuração e sanitização de erros, sem banco.
+- `test/unit/`: configuração, sanitização de erros e mapeamento do `HealthService` (readiness e transições de log), sem banco.
 - `test/integration/`: o `global-setup.ts` sobe um container `postgres:18.6-alpine` efêmero (porta aleatória, sem volume) via Testcontainers e o remove ao final. Cobre conexão real, abertura/encerramento de sessões (`pg_stat_activity`), indisponibilidade, credencial incorreta, timeout, migrações e bootstrap HTTP. Nunca substituir PostgreSQL por SQLite.
+- `test/integration/health.api.spec.ts`: contrato HTTP de health com PactumJS (3.9.1), contra um container PostgreSQL próprio. Cobre:
+  - banco disponível;
+  - banco recusando conexões (`ALLOW_CONNECTIONS false` e conexões encerradas);
+  - recuperação;
+  - banco sem resposta (`docker pause`, caminho do timeout);
+  - banco parado.
 
-Rota técnica: `GET /health` → `{"status":"ok"}` (liveness apenas; não verifica dependências).
+  Em todos os cenários verifica que o payload não traz dados sensíveis e que o liveness continua 200.
+
+## Health checks (DEV-005)
+
+| Rota | Banco disponível | Banco indisponível |
+|---|---|---|
+| `GET /health/live` | `200 {"status":"ok"}` | `200 {"status":"ok"}` (processo vivo; não consulta dependências) |
+| `GET /health/ready` | `200 {"status":"ok","checks":{"database":"up"}}` | `503 {"status":"unavailable","checks":{"database":"down"}}` |
+
+- Ambas respondem com `Cache-Control: no-store`. A rota antiga `GET /health` foi substituída e responde 404.
+- **Readiness:** executa `SELECT 1` a cada chamada (`PrismaService.ping`), com limite técnico de 2 s (`READINESS_TIMEOUT_MS`). Esse limite não é um SLO. Estourar o limite conta como `down`. Quando o banco volta, a readiness se recupera sozinha, sem reiniciar a aplicação.
+- **Payload:** nunca inclui mensagem de erro, código, host, porta, usuário, URL ou nome do banco.
+- **Log:** o motivo sanitizado (por exemplo `DatabaseNotReachable` ou `PingTimeout`) vai só para o log, e apenas na mudança de estado (`up→down` em warn, `down→up` em log).
+- **Banco indisponível na subida:** continua sendo fail-fast, com código de saída 1 (DEV-003).
+- **Healthcheck de container:** `dist/healthcheck.js` chama `http://127.0.0.1:$PORT/health/ready` e sai com 0 só em HTTP 200. Usa o mesmo parser de `PORT` da aplicação e tem timeout de 2,5 s. O Compose do `finbank-v2-infra` usa esse script.
 
 ## Convenção de módulos
 

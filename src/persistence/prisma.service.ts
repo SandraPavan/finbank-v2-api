@@ -1,10 +1,11 @@
 import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client.js';
-import { toDatabaseUnavailableError } from './database-errors.js';
+import { DatabaseUnavailableError, toDatabaseUnavailableError } from './database-errors.js';
 
 export const DATABASE_OPTIONS = Symbol('DATABASE_OPTIONS');
 export const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
+export const PING_TIMEOUT_CODE = 'PingTimeout';
 
 export interface DatabaseOptions {
   readonly databaseUrl: string;
@@ -34,6 +35,24 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       await this.client.$disconnect().catch(() => undefined);
       throw toDatabaseUnavailableError(error);
+    }
+  }
+
+  /**
+   * Verifica a disponibilidade atual do banco com `SELECT 1`, limitada a `timeoutMs`.
+   * Falhas e estouro do limite viram `DatabaseUnavailableError` sanitizado.
+   */
+  async ping(timeoutMs: number): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new DatabaseUnavailableError(PING_TIMEOUT_CODE)), timeoutMs);
+    });
+    try {
+      await Promise.race([this.client.$queryRaw`SELECT 1`, timeout]);
+    } catch (error) {
+      throw error instanceof DatabaseUnavailableError ? error : toDatabaseUnavailableError(error);
+    } finally {
+      clearTimeout(timer);
     }
   }
 

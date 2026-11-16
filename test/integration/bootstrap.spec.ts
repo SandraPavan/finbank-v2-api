@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { AppModule } from '../../src/app.module.js';
 import { HealthController } from '../../src/health/health.controller.js';
+import { HealthService } from '../../src/health/health.service.js';
 import { PrismaService } from '../../src/persistence/prisma.service.js';
 
 describe('composição e bootstrap da aplicação', () => {
@@ -23,9 +24,8 @@ describe('composição e bootstrap da aplicação', () => {
   });
 
   it('resolve o controller com suas dependências injetadas por tipo', () => {
-    const controller = app.get(HealthController);
-    expect(controller).toBeInstanceOf(HealthController);
-    expect(controller.getLiveness()).toEqual({ status: 'ok' });
+    expect(app.get(HealthController)).toBeInstanceOf(HealthController);
+    expect(app.get(HealthService).getLiveness()).toEqual({ status: 'ok' });
   });
 
   it('compõe a persistência com conexão ativa', async () => {
@@ -34,10 +34,15 @@ describe('composição e bootstrap da aplicação', () => {
     expect(rows).toEqual([{ ok: 1 }]);
   });
 
-  it('responde GET /health via HTTP real', async () => {
-    const response = await fetch(`${baseUrl}/health`);
+  it('responde GET /health/live via HTTP real', async () => {
+    const response = await fetch(`${baseUrl}/health/live`);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: 'ok' });
+  });
+
+  it('não mantém a rota antiga GET /health (substituída por /health/live e /health/ready)', async () => {
+    const response = await fetch(`${baseUrl}/health`);
+    expect(response.status).toBe(404);
   });
 
   it('retorna 404 para rota inexistente', async () => {

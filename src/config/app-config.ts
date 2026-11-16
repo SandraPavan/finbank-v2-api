@@ -25,7 +25,7 @@ export function loadAppConfig(env: Readonly<Record<string, string | undefined>>)
   };
 }
 
-function parsePort(raw: string | undefined): number {
+export function parsePort(raw: string | undefined): number {
   if (raw === undefined) {
     return DEFAULT_PORT;
   }
