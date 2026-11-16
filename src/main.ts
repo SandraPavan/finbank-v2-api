@@ -1,10 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { InvalidConfigError, loadAppConfig } from './config/app-config.js';
+import { DatabaseUnavailableError } from './persistence/database-errors.js';
 
 async function bootstrap(): Promise<void> {
   const config = loadAppConfig(process.env);
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule.forRoot(config), { abortOnError: false });
   app.enableShutdownHooks();
   await app.listen(config.port);
 }
@@ -12,7 +13,7 @@ async function bootstrap(): Promise<void> {
 try {
   await bootstrap();
 } catch (error) {
-  if (error instanceof InvalidConfigError) {
+  if (error instanceof InvalidConfigError || error instanceof DatabaseUnavailableError) {
     console.error(error.message);
     process.exitCode = 1;
   } else {

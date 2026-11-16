@@ -10,3 +10,6 @@ coverage/
 *.key
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Cliente Prisma gerado
+src/generated/

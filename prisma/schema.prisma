@@ -1,0 +1,13 @@
+// Fundação de persistência (DEV-003): sem modelos de domínio.
+// Modelos financeiros dependem de PD-05/PD-06 e de histórias futuras.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
