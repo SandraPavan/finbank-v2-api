@@ -14,7 +14,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:status": "prisma migrate status",
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "prisma generate && eslint . --max-warnings 0",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "vitest run --project unit",

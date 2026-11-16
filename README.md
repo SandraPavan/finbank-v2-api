@@ -27,7 +27,7 @@ Dependências são fixadas com versão exata (`.npmrc`: `save-exact=true`, `engi
 ```sh
 npm ci                        # instala exatamente o lockfile
 npm run prisma:generate       # gera o cliente Prisma em src/generated/ (ignorado pelo Git)
-npm run lint                  # ESLint (typescript-eslint com tipos), --max-warnings 0
+npm run lint                  # prisma generate + ESLint (typescript-eslint com tipos), --max-warnings 0
 npm run typecheck             # prisma generate + tsc --noEmit (src, test e configs)
 npm run build                 # prisma generate + compila src/ para dist/
 npm start                     # node dist/main.js, carregando .env se existir (requer build)
