@@ -2,7 +2,7 @@
 
 API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Documentação oficial, regras e histórias ficam na coordenação (`../_bmad-output/`, `../.claude/rules/`).
 
-Estado atual (DEV-001, DEV-003 e DEV-005): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness) e adaptador de persistência PostgreSQL/Prisma sem modelos. Sem domínio, tabelas financeiras, autenticação, worker ou rotas financeiras.
+Estado atual (DEV-001, DEV-003, DEV-005 e DEV-006): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma sem modelos e contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio). Sem domínio, tabelas financeiras, autenticação, worker ou rotas financeiras.
 
 ## Runtime e versões (PD-02, resolvida na DEV-001)
 
@@ -60,7 +60,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 
 ## Testes
 
-- `test/unit/`: configuração, sanitização de erros e mapeamento do `HealthService` (readiness e transições de log), sem banco.
+- `test/unit/`: configuração, sanitização de erros, mapeamento do `HealthService` (readiness e transições de log) e matriz dos modos educacionais (`education/`), sem banco.
 - `test/integration/`: o `global-setup.ts` sobe um container `postgres:18.6-alpine` efêmero (porta aleatória, sem volume) via Testcontainers e o remove ao final. Cobre conexão real, abertura/encerramento de sessões (`pg_stat_activity`), indisponibilidade, credencial incorreta, timeout, migrações e bootstrap HTTP. Nunca substituir PostgreSQL por SQLite.
 - `test/integration/health.api.spec.ts`: contrato HTTP de health com PactumJS (3.9.1), contra um container PostgreSQL próprio. Cobre:
   - banco disponível;
@@ -84,6 +84,16 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - **Log:** o motivo sanitizado (por exemplo `DatabaseNotReachable` ou `PingTimeout`) vai só para o log, e apenas na mudança de estado (`up→down` em warn, `down→up` em log).
 - **Banco indisponível na subida:** continua sendo fail-fast, com código de saída 1 (DEV-003).
 - **Healthcheck de container:** `dist/healthcheck.js` chama `http://127.0.0.1:$PORT/health/ready` e sai com 0 só em HTTP 200. Usa o mesmo parser de `PORT` da aplicação e tem timeout de 2,5 s. O Compose do `finbank-v2-infra` usa esse script.
+
+## Modos educacionais (DEV-006)
+
+`src/education/` é domínio puro: não importa NestJS, HTTP nem Prisma. O contrato está documentado em `../finbank-v2-educational/contracts/modos-educacionais.md`.
+
+- `educational-mode.ts`: tipos (modo, preset, ambiente, ator, configuração), erros tipados e parsing estrito de entradas `unknown`. A mensagem de erro nunca traz o valor recebido.
+- `defect-catalog.ts`: `DEFECT_CATALOG`, **vazio** (nenhum defeito executável), e `validateCatalog`.
+- `educational-policy.ts`: política de segurança (`affectsSecurity` nunca em `SHARED`), resolução (`STUDENT/ALL` calculado sobre o catálogo vigente), default `STUDENT/ALL`, leitura isolada por workspace e alteração só pelo facilitador do próprio workspace.
+
+Ainda não há endpoint, persistência nem variável de ambiente, porque dependem de PD-03 (identidade e workspace). O papel e o workspace do ator devem vir da autorização validada, nunca do payload. Os testes ficam em `test/unit/education/`. O catálogo fictício `fixture-catalog.ts` só existe nos testes e não é um defeito.
 
 ## Convenção de módulos
 
