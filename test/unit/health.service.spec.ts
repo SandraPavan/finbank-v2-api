@@ -4,11 +4,9 @@ import { HealthService, READINESS_TIMEOUT_MS, type DatabaseProbe } from '../../s
 import { DatabaseUnavailableError } from '../../src/persistence/database-errors.js';
 
 function probe(...outcomes: Array<'up' | Error>): DatabaseProbe & { ping: ReturnType<typeof vi.fn> } {
-  const ping = vi.fn(async () => {
+  const ping = vi.fn((): Promise<void> => {
     const next = outcomes.length > 1 ? outcomes.shift() : outcomes[0];
-    if (next instanceof Error) {
-      throw next;
-    }
+    return next instanceof Error ? Promise.reject(next) : Promise.resolve();
   });
   return { ping };
 }

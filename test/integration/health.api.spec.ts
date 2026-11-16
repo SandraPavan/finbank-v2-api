@@ -45,12 +45,13 @@ describe('health — contrato HTTP com PostgreSQL real (PactumJS)', () => {
   }
 
   async function readiness(status: 200 | 503): Promise<unknown> {
-    const response = await spec()
+    // O PactumJS tipa a resposta como `any`; estreitamos para o único campo usado.
+    const response = (await spec()
       .get('/health/ready')
       .expectStatus(status)
       .expectHeaderContains('cache-control', 'no-store')
       .expectJson(status === 200 ? READY : NOT_READY)
-      .toss();
+      .toss()) as { body: unknown };
     return response.body;
   }
 

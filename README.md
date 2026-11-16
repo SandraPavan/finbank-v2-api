@@ -18,6 +18,7 @@ Estado atual (DEV-001, DEV-003, DEV-005 e DEV-006): bootstrap, composição de m
 | PostgreSQL (testes e smoke) | imagem `postgres:18.6-alpine` |
 | Testcontainers (`testcontainers`, `@testcontainers/postgresql`) | 12.2.1 |
 | PactumJS (`pactum`) | 3.9.1 |
+| ESLint (`eslint`, `@eslint/js`, `typescript-eslint`, `globals`) | 10.15.0, 10.0.1, 8.72.2, 17.14.0 |
 
 Dependências são fixadas com versão exata (`.npmrc`: `save-exact=true`, `engine-strict=true`). Atenção: o dist-tag `latest` do pacote `prisma` aponta para um release candidate da linha 8; sempre instalar com versão explícita. Atualizações exigem verificação de compatibilidade e registro em história.
 
@@ -26,14 +27,18 @@ Dependências são fixadas com versão exata (`.npmrc`: `save-exact=true`, `engi
 ```sh
 npm ci                        # instala exatamente o lockfile
 npm run prisma:generate       # gera o cliente Prisma em src/generated/ (ignorado pelo Git)
-npm run typecheck             # prisma generate + tsc --noEmit (src + test)
+npm run lint                  # ESLint (typescript-eslint com tipos), --max-warnings 0
+npm run typecheck             # prisma generate + tsc --noEmit (src, test e configs)
 npm run build                 # prisma generate + compila src/ para dist/
 npm start                     # node dist/main.js, carregando .env se existir (requer build)
 npm test                      # testes unitários (sem Docker)
 npm run test:integration      # integração com PostgreSQL real descartável (requer Docker em execução)
 npm run prisma:migrate:deploy # aplica migrações pendentes no banco de DATABASE_URL
 npm run prisma:migrate:status # mostra o estado das migrações no banco de DATABASE_URL
+npm run verify                # lint + typecheck + test + build (sem Docker)
 ```
+
+Guia de qualidade (camadas, Pact, k6 e required checks): `../docs/quality.md`.
 
 ## Configuração por ambiente
 
