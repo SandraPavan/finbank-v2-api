@@ -72,3 +72,14 @@ Rota técnica: `GET /health` → `{"status":"ok"}` (liveness apenas; não verifi
 - `src/persistence/`: adaptador de infraestrutura; sem regras de negócio. Portas de repositório serão criadas quando houver caso de uso concreto.
 - Quando houver regra de domínio, ela fica em código sem dependência de NestJS, HTTP ou Prisma; portas e adaptadores são criados somente quando houver necessidade concreta (sem pastas ou interfaces vazias).
 - PaymentExecution será o único módulo autorizado a alterar saldos (ver arquitetura na coordenação).
+
+## Imagem Docker (DEV-004)
+
+`Dockerfile` multi-stage sobre `node:24.21.0-bookworm-slim`:
+
+- `deps`: `npm ci` com dependências de desenvolvimento;
+- `build`: `npm run build`;
+- `migrate`: `prisma migrate deploy`, com o schema engine da plataforma baixado no build e `openssl`;
+- `runtime`: `npm ci --omit=dev`, usuário `node`, `node dist/main.js`, porta 3000.
+
+Nenhum segredo entra na imagem: `DATABASE_URL` é fornecida quando o container roda. O `.dockerignore` exclui `node_modules`, `dist`, `src/generated`, `test`, `.env` e Git. Orquestração em `../finbank-v2-infra`.

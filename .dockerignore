@@ -1,0 +1,20 @@
+# Contexto de build mínimo: nada de dependências locais, artefatos, segredos ou Git.
+.git
+.gitignore
+node_modules
+dist
+coverage
+src/generated
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+*.pem
+*.key
+.claude
+CLAUDE.md
+CLAUDE.local.md
+test
+Dockerfile
+.dockerignore
