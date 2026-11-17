@@ -1,4 +1,4 @@
-// Política de segurança, resolução e alteração da configuração educacional por workspace (DEV-006).
+// Política de segurança, resolução e alteração da configuração educacional por workspace.
 import type { DefectCatalog, DefectDefinition } from './defect-catalog.js';
 import {
   type Actor,
@@ -13,10 +13,13 @@ import {
   type WorkspaceEducationalConfig,
 } from './educational-mode.js';
 
+/** Visão de leitura do preset: indica o tipo, sem expor o hash do código. */
+export type ResolvedPreset = { readonly kind: 'ALL' } | { readonly kind: 'LAB' };
+
 export interface ResolvedEducationalConfig {
   readonly workspaceId: string;
   readonly mode: EducationalMode;
-  readonly preset: Preset | null;
+  readonly preset: ResolvedPreset | null;
   /** Defeitos efetivamente executáveis. Com o catálogo atual, sempre vazio. */
   readonly enabledDefectIds: readonly string[];
 }
@@ -42,8 +45,8 @@ function candidateDefectIds(config: WorkspaceEducationalConfig, catalog: DefectC
     // ALL é calculado sobre o catálogo vigente: defeitos futuros permitidos entram automaticamente.
     return catalog.defects.map((defect) => defect.id);
   }
-  const { labId } = config.preset;
-  return catalog.labPresets.find((lab) => lab.labId === labId)?.defectIds ?? [];
+  const { codeHash } = config.preset;
+  return catalog.labPresets.find((lab) => lab.codeHash === codeHash)?.defectIds ?? [];
 }
 
 export function resolveEnabledDefects(
@@ -57,6 +60,10 @@ export function resolveEnabledDefects(
       .filter((defect) => candidates.has(defect.id) && isDefectAllowed(defect, environment))
       .map((defect) => defect.id),
   );
+}
+
+function readPreset(preset: Preset): ResolvedPreset {
+  return preset.kind === 'ALL' ? PRESET_ALL : Object.freeze({ kind: 'LAB' });
 }
 
 function assertSameWorkspace(actor: Actor, config: WorkspaceEducationalConfig): void {
@@ -76,7 +83,7 @@ export function resolveForWorkspace(
   return Object.freeze({
     workspaceId: config.workspaceId,
     mode: config.mode,
-    preset: config.mode === 'STUDENT' ? config.preset : null,
+    preset: config.mode === 'STUDENT' ? readPreset(config.preset) : null,
     enabledDefectIds: resolveEnabledDefects(config, catalog, environment),
   });
 }

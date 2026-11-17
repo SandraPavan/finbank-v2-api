@@ -1,17 +1,26 @@
-// Catálogo de defeitos educacionais (DEV-006). VAZIO por decisão: nenhum defeito executável.
-// Cada defeito futuro exige história própria com contrato, ambientes permitidos, reversão e
-// testes do comportamento correto e didático (rule 07, PD-08).
-import { ENVIRONMENT_KINDS, type EnvironmentKind, InvalidEducationalConfigError } from './educational-mode.js';
+// Catálogo de defeitos educacionais. VAZIO por decisão: nenhum defeito executável.
+// Identificadores são opacos e não descrevem o defeito. Presets são indexados pelo
+// SHA-256 do código do laboratório; o código em si nunca entra neste repositório.
+import {
+  CODE_HASH_PATTERN,
+  ENVIRONMENT_KINDS,
+  type EnvironmentKind,
+  InvalidEducationalConfigError,
+} from './educational-mode.js';
+
+/** `d-` + 16 caracteres hexadecimais minúsculos. */
+export const DEFECT_ID_PATTERN = /^d-[0-9a-f]{16}$/;
 
 export interface DefectDefinition {
   readonly id: string;
-  /** Defeito que enfraquece autenticação, autorização, isolamento ou sigilo. Nunca em SHARED. */
+  /** Enfraquece autenticação, autorização, isolamento ou sigilo. Nunca em SHARED. */
   readonly affectsSecurity: boolean;
   readonly allowedEnvironments: readonly EnvironmentKind[];
 }
 
 export interface LabPreset {
-  readonly labId: string;
+  /** SHA-256 (hex minúsculo) do código do laboratório. */
+  readonly codeHash: string;
   readonly defectIds: readonly string[];
 }
 
@@ -20,12 +29,12 @@ export interface DefectCatalog {
   readonly labPresets: readonly LabPreset[];
 }
 
-/** Garante a integridade de um catálogo: ids únicos, ambientes conhecidos e presets coerentes. */
+/** Garante a integridade de um catálogo: ids opacos e únicos, ambientes conhecidos e presets coerentes. */
 export function validateCatalog(catalog: DefectCatalog): DefectCatalog {
   const defectIds = new Set<string>();
   for (const defect of catalog.defects) {
-    if (defect.id === '' || defectIds.has(defect.id)) {
-      throw new InvalidEducationalConfigError('catálogo.defects', 'exige ids não vazios e únicos');
+    if (!DEFECT_ID_PATTERN.test(defect.id) || defectIds.has(defect.id)) {
+      throw new InvalidEducationalConfigError('catálogo.defects', 'exige ids opacos válidos e únicos');
     }
     if (
       typeof defect.affectsSecurity !== 'boolean' ||
@@ -36,15 +45,15 @@ export function validateCatalog(catalog: DefectCatalog): DefectCatalog {
     }
     defectIds.add(defect.id);
   }
-  const labIds = new Set<string>();
+  const codeHashes = new Set<string>();
   for (const lab of catalog.labPresets) {
-    if (lab.labId === '' || labIds.has(lab.labId)) {
-      throw new InvalidEducationalConfigError('catálogo.labPresets', 'exige labIds não vazios e únicos');
+    if (!CODE_HASH_PATTERN.test(lab.codeHash) || codeHashes.has(lab.codeHash)) {
+      throw new InvalidEducationalConfigError('catálogo.labPresets', 'exige hashes SHA-256 válidos e únicos');
     }
-    if (lab.defectIds.some((id) => !defectIds.has(id))) {
-      throw new InvalidEducationalConfigError('catálogo.labPresets', 'referencia defeito inexistente');
+    if (lab.defectIds.length === 0 || lab.defectIds.some((id) => !defectIds.has(id))) {
+      throw new InvalidEducationalConfigError('catálogo.labPresets', 'exige defeitos existentes no catálogo');
     }
-    labIds.add(lab.labId);
+    codeHashes.add(lab.codeHash);
   }
   return catalog;
 }

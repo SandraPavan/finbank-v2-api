@@ -3,6 +3,7 @@ import { DEFECT_CATALOG } from '../../../src/education/defect-catalog.js';
 import {
   type Actor,
   EducationalAuthorizationError,
+  hashLabCode,
   InvalidEducationalConfigError,
   type WorkspaceEducationalConfig,
 } from '../../../src/education/educational-mode.js';
@@ -11,7 +12,7 @@ import {
   defaultWorkspaceConfig,
   resolveForWorkspace,
 } from '../../../src/education/educational-policy.js';
-import { FIXTURE_CATALOG } from './fixture-catalog.js';
+import { CODE_1, FIXTURE_CATALOG, ID_A, ID_B, ID_C } from './fixture-catalog.js';
 
 const FACILITATOR_A: Actor = { role: 'FACILITATOR', workspaceId: 'ws-a' };
 const FACILITATOR_B: Actor = { role: 'FACILITATOR', workspaceId: 'ws-b' };
@@ -37,22 +38,22 @@ describe('alteração de configuração — papel e workspace', () => {
     expect(Object.isFrozen(next)).toBe(true);
   });
 
-  it('facilitador escolhe preset de laboratório existente', () => {
+  it('facilitador escolhe preset de laboratório pelo código; somente o hash é armazenado', () => {
     const next = applyConfigChange(
       FACILITATOR_A,
       CONFIG_A,
-      { mode: 'STUDENT', preset: { kind: 'LAB', labId: 'lab-fixture-a' } },
+      { mode: 'STUDENT', preset: { kind: 'LAB', code: CODE_1 } },
       FIXTURE_CATALOG,
       'ISOLATED',
     );
-    expect(next).toEqual({ workspaceId: 'ws-a', mode: 'STUDENT', preset: { kind: 'LAB', labId: 'lab-fixture-a' } });
+    expect(next).toEqual({ workspaceId: 'ws-a', mode: 'STUDENT', preset: { kind: 'LAB', codeHash: hashLabCode(CODE_1) } });
   });
 
   it.each([
     { mode: 'CONTROLLED' },
     { mode: 'STUDENT' },
-    { mode: 'STUDENT', preset: { kind: 'LAB', labId: 'lab-fixture-a' } },
-    { mode: 'CONTROLLED', enabledDefectIds: ['fixture-functional'] },
+    { mode: 'STUDENT', preset: { kind: 'LAB', code: CODE_1 } },
+    { mode: 'CONTROLLED', enabledDefectIds: [ID_A] },
     { mode: 'STUDENT', role: 'FACILITATOR' },
   ])('estudante não altera a configuração (%j)', (change) => {
     const error = authorizationError(() => applyConfigChange(STUDENT_A, CONFIG_A, change, FIXTURE_CATALOG, 'ISOLATED'));
@@ -92,7 +93,7 @@ describe('alteração de configuração — política de ambiente', () => {
       applyConfigChange(
         FACILITATOR_A,
         CONFIG_A,
-        { mode: 'CONTROLLED', enabledDefectIds: ['fixture-security'] },
+        { mode: 'CONTROLLED', enabledDefectIds: [ID_B] },
         FIXTURE_CATALOG,
         'SHARED',
       ),
@@ -104,28 +105,28 @@ describe('alteração de configuração — política de ambiente', () => {
       applyConfigChange(
         FACILITATOR_A,
         CONFIG_A,
-        { mode: 'CONTROLLED', enabledDefectIds: ['fixture-isolated-only'] },
+        { mode: 'CONTROLLED', enabledDefectIds: [ID_C] },
         FIXTURE_CATALOG,
         'SHARED',
       ),
     ).toThrow(InvalidEducationalConfigError);
   });
 
-  it('em ambiente isolado o defeito de segurança fictício pode ser habilitado pelo facilitador', () => {
+  it('em ambiente isolado o defeito fictício que afeta segurança pode ser habilitado pelo facilitador', () => {
     const next = applyConfigChange(
       FACILITATOR_A,
       CONFIG_A,
-      { mode: 'CONTROLLED', enabledDefectIds: ['fixture-security'] },
+      { mode: 'CONTROLLED', enabledDefectIds: [ID_B] },
       FIXTURE_CATALOG,
       'ISOLATED',
     );
-    expect(next).toEqual({ workspaceId: 'ws-a', mode: 'CONTROLLED', enabledDefectIds: ['fixture-security'] });
+    expect(next).toEqual({ workspaceId: 'ws-a', mode: 'CONTROLLED', enabledDefectIds: [ID_B] });
   });
 
   it('catálogo vigente vazio: nenhum defeito pode ser habilitado em nenhum ambiente', () => {
     for (const env of ['ISOLATED', 'SHARED'] as const) {
       expect(() =>
-        applyConfigChange(FACILITATOR_A, CONFIG_A, { mode: 'CONTROLLED', enabledDefectIds: ['fixture-functional'] }, DEFECT_CATALOG, env),
+        applyConfigChange(FACILITATOR_A, CONFIG_A, { mode: 'CONTROLLED', enabledDefectIds: [ID_A] }, DEFECT_CATALOG, env),
       ).toThrow(InvalidEducationalConfigError);
     }
   });
@@ -151,19 +152,36 @@ describe('leitura isolada por workspace', () => {
     const controlledB: WorkspaceEducationalConfig = applyConfigChange(
       FACILITATOR_B,
       CONFIG_B,
-      { mode: 'CONTROLLED', enabledDefectIds: ['fixture-functional'] },
+      { mode: 'CONTROLLED', enabledDefectIds: [ID_A] },
       FIXTURE_CATALOG,
       'SHARED',
     );
     expect(resolveForWorkspace(FACILITATOR_A, CONFIG_A, FIXTURE_CATALOG, 'SHARED')).toMatchObject({
       mode: 'STUDENT',
-      enabledDefectIds: ['fixture-functional'],
+      enabledDefectIds: [ID_A],
     });
     expect(resolveForWorkspace(FACILITATOR_B, controlledB, FIXTURE_CATALOG, 'SHARED')).toMatchObject({
       mode: 'CONTROLLED',
       preset: null,
-      enabledDefectIds: ['fixture-functional'],
+      enabledDefectIds: [ID_A],
     });
     expect(CONFIG_A.mode).toBe('STUDENT');
+  });
+});
+
+describe('leitura de preset de laboratório', () => {
+  it('a configuração resolvida indica LAB sem expor o código nem o hash', () => {
+    const lab = applyConfigChange(
+      FACILITATOR_A,
+      CONFIG_A,
+      { mode: 'STUDENT', preset: { kind: 'LAB', code: CODE_1 } },
+      FIXTURE_CATALOG,
+      'ISOLATED',
+    );
+    const resolved = resolveForWorkspace(STUDENT_A, lab, FIXTURE_CATALOG, 'ISOLATED');
+    expect(resolved).toEqual({ workspaceId: 'ws-a', mode: 'STUDENT', preset: { kind: 'LAB' }, enabledDefectIds: [ID_A, ID_B] });
+    const serialized = JSON.stringify(resolved);
+    expect(serialized).not.toContain(CODE_1);
+    expect(serialized).not.toContain(hashLabCode(CODE_1));
   });
 });

@@ -1,6 +1,6 @@
 # finbank-v2-api
 
-API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Documentação oficial, regras e histórias ficam na coordenação (`../_bmad-output/`, `../.claude/rules/`).
+API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Este repositório é público e autossuficiente: setup, execução e testes dependem só dele (e de `finbank-v2-web` e `finbank-v2-infra` para o ambiente completo). As referências a histórias (DEV-xxx) e decisões (PD-xx) vêm da documentação interna da equipe e não são necessárias para usar o projeto.
 
 Estado atual (DEV-001, DEV-003, DEV-005 e DEV-006): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma sem modelos e contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio). Sem domínio, tabelas financeiras, autenticação, worker ou rotas financeiras.
 
@@ -38,7 +38,7 @@ npm run prisma:migrate:status # mostra o estado das migrações no banco de DATA
 npm run verify                # lint + typecheck + test + build (sem Docker)
 ```
 
-Guia de qualidade (camadas, Pact, k6 e required checks): `../docs/quality.md`.
+**Qualidade:** ESLint com `--max-warnings 0`, typecheck estrito, Vitest e PostgreSQL real nos testes de integração. Os testes cobrem o comportamento correto. Não há meta percentual de cobertura. Os testes de contrato HTTP (PactumJS) dos health checks fazem parte de `test:integration`.
 
 ## Configuração por ambiente
 
@@ -92,13 +92,13 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 
 ## Modos educacionais (DEV-006)
 
-`src/education/` é domínio puro: não importa NestJS, HTTP nem Prisma. O contrato está documentado em `../finbank-v2-educational/contracts/modos-educacionais.md`.
+`src/education/` é domínio puro: não importa NestJS, HTTP nem Prisma. Os identificadores de defeito são opacos (`d-` + 16 hexadecimais) e não descrevem o defeito. Presets de laboratório são indexados pelo SHA-256 de um código de laboratório: o código nunca fica no repositório, e o hash não é autorização.
 
-- `educational-mode.ts`: tipos (modo, preset, ambiente, ator, configuração), erros tipados e parsing estrito de entradas `unknown`. A mensagem de erro nunca traz o valor recebido.
-- `defect-catalog.ts`: `DEFECT_CATALOG`, **vazio** (nenhum defeito executável), e `validateCatalog`.
-- `educational-policy.ts`: política de segurança (`affectsSecurity` nunca em `SHARED`), resolução (`STUDENT/ALL` calculado sobre o catálogo vigente), default `STUDENT/ALL`, leitura isolada por workspace e alteração só pelo facilitador do próprio workspace.
+- `educational-mode.ts`: tipos (modo, preset, ambiente, ator, configuração), erros tipados e parsing estrito de entradas `unknown`, inclusive do código de laboratório (`A-Z`, `0-9` e `-`, 8 a 32 caracteres). As mensagens de erro nunca trazem o valor recebido, o código nem o hash.
+- `defect-catalog.ts`: `DEFECT_CATALOG`, **vazio** (nenhum defeito executável), e `validateCatalog`, que exige IDs opacos, hashes SHA-256 válidos e presets coerentes.
+- `educational-policy.ts`: política de segurança (`affectsSecurity` nunca em `SHARED`), resolução (`STUDENT/ALL` calculado sobre o catálogo vigente), default `STUDENT/ALL`, leitura isolada por workspace (a leitura de um preset de laboratório indica só o tipo, sem o hash) e alteração só pelo facilitador do próprio workspace.
 
-Ainda não há endpoint, persistência nem variável de ambiente, porque dependem de PD-03 (identidade e workspace). O papel e o workspace do ator devem vir da autorização validada, nunca do payload. Os testes ficam em `test/unit/education/`. O catálogo fictício `fixture-catalog.ts` só existe nos testes e não é um defeito.
+Ainda não há endpoint, persistência nem variável de ambiente, porque dependem de PD-03 (identidade e workspace). O papel e o workspace do ator devem vir da autorização validada, nunca do payload. Os testes ficam em `test/unit/education/`. O catálogo fictício `fixture-catalog.ts` só existe nos testes, com IDs e códigos aleatórios que não correspondem a nenhum laboratório.
 
 ## Convenção de módulos
 
@@ -107,7 +107,7 @@ Ainda não há endpoint, persistência nem variável de ambiente, porque depende
 - `src/<módulo>/`: módulo NestJS. Controllers traduzem HTTP e delegam a serviços de caso de uso.
 - `src/persistence/`: adaptador de infraestrutura; sem regras de negócio. Portas de repositório serão criadas quando houver caso de uso concreto.
 - Quando houver regra de domínio, ela fica em código sem dependência de NestJS, HTTP ou Prisma; portas e adaptadores são criados somente quando houver necessidade concreta (sem pastas ou interfaces vazias).
-- PaymentExecution será o único módulo autorizado a alterar saldos (ver arquitetura na coordenação).
+- PaymentExecution será o único módulo autorizado a alterar saldos (decisão de arquitetura da equipe).
 
 ## Imagem Docker (DEV-004)
 

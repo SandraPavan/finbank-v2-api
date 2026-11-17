@@ -1,5 +1,8 @@
-// Contrato dos modos educacionais (DEV-006). Domínio puro: sem NestJS, HTTP ou Prisma.
-// Documentação: ../finbank-v2-educational/contracts/modos-educacionais.md
+// Contrato dos modos educacionais. Domínio puro: sem NestJS, HTTP ou Prisma.
+// Identificadores de defeito são opacos; presets de laboratório são indexados pelo
+// SHA-256 do código do laboratório. Mensagens de erro nunca exibem valores recebidos,
+// códigos ou hashes.
+import { createHash } from 'node:crypto';
 import type { DefectCatalog } from './defect-catalog.js';
 
 export const EDUCATIONAL_MODES = ['STUDENT', 'CONTROLLED'] as const;
@@ -12,7 +15,12 @@ export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
 export const ACTOR_ROLES = ['STUDENT', 'FACILITATOR'] as const;
 export type ActorRole = (typeof ACTOR_ROLES)[number];
 
-export type Preset = { readonly kind: 'ALL' } | { readonly kind: 'LAB'; readonly labId: string };
+/** Código de laboratório: A-Z, 0-9 e hífen, 8 a 32 caracteres, comparação exata. */
+export const LAB_CODE_PATTERN = /^[A-Z0-9-]{8,32}$/;
+/** SHA-256 em hexadecimal minúsculo. */
+export const CODE_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+export type Preset = { readonly kind: 'ALL' } | { readonly kind: 'LAB'; readonly codeHash: string };
 
 export const PRESET_ALL: Preset = Object.freeze({ kind: 'ALL' });
 
@@ -99,6 +107,28 @@ export function parseWorkspaceId(raw: unknown): string {
   return raw;
 }
 
+/** SHA-256 (hex minúsculo) do código. Representação no catálogo; não é autorização. */
+export function hashLabCode(code: string): string {
+  return createHash('sha256').update(code, 'utf8').digest('hex');
+}
+
+/** Valida o formato do código de laboratório e devolve seu hash. Nunca ecoa o código. */
+export function parseLabCode(raw: unknown): string {
+  if (typeof raw !== 'string' || !LAB_CODE_PATTERN.test(raw)) {
+    throw new InvalidEducationalConfigError('código de laboratório', 'deve ter de 8 a 32 caracteres A-Z, 0-9 ou hífen');
+  }
+  return hashLabCode(raw);
+}
+
+/** Resolve o código para o preset do catálogo. Código desconhecido é rejeitado sem detalhes. */
+export function resolveLabPreset(raw: unknown, catalog: DefectCatalog): Preset {
+  const codeHash = parseLabCode(raw);
+  if (!catalog.labPresets.some((lab) => lab.codeHash === codeHash)) {
+    throw new InvalidEducationalConfigError('código de laboratório', 'não corresponde a um preset do catálogo');
+  }
+  return Object.freeze({ kind: 'LAB', codeHash });
+}
+
 export function parsePreset(raw: unknown, catalog: DefectCatalog): Preset {
   if (!isPlainObject(raw)) {
     throw new InvalidEducationalConfigError('preset', 'deve ser um objeto { kind }');
@@ -108,12 +138,8 @@ export function parsePreset(raw: unknown, catalog: DefectCatalog): Preset {
     return PRESET_ALL;
   }
   if (raw['kind'] === 'LAB') {
-    assertOnlyKeys(raw, ['kind', 'labId'], 'preset');
-    const labId = raw['labId'];
-    if (typeof labId !== 'string' || !catalog.labPresets.some((lab) => lab.labId === labId)) {
-      throw new InvalidEducationalConfigError('preset.labId', 'deve identificar um preset de laboratório do catálogo');
-    }
-    return Object.freeze({ kind: 'LAB', labId });
+    assertOnlyKeys(raw, ['kind', 'code'], 'preset');
+    return resolveLabPreset(raw['code'], catalog);
   }
   throw new InvalidEducationalConfigError('preset.kind', 'deve ser ALL ou LAB');
 }

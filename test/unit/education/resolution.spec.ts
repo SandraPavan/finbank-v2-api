@@ -3,6 +3,7 @@ import { DEFECT_CATALOG } from '../../../src/education/defect-catalog.js';
 import {
   ENVIRONMENT_KINDS,
   type EnvironmentKind,
+  hashLabCode,
   type WorkspaceEducationalConfig,
 } from '../../../src/education/educational-mode.js';
 import {
@@ -10,17 +11,17 @@ import {
   isDefectAllowed,
   resolveEnabledDefects,
 } from '../../../src/education/educational-policy.js';
-import { FIXTURE_CATALOG } from './fixture-catalog.js';
+import { CODE_1, CODE_2, FIXTURE_CATALOG, ID_A, ID_B, ID_C } from './fixture-catalog.js';
 
 const WS = 'ws-a';
 
 const CONFIGS: Record<string, WorkspaceEducationalConfig> = {
   'STUDENT/ALL': { workspaceId: WS, mode: 'STUDENT', preset: { kind: 'ALL' } },
-  'STUDENT/LAB-A': { workspaceId: WS, mode: 'STUDENT', preset: { kind: 'LAB', labId: 'lab-fixture-a' } },
-  'STUDENT/LAB-B': { workspaceId: WS, mode: 'STUDENT', preset: { kind: 'LAB', labId: 'lab-fixture-b' } },
+  'STUDENT/LAB-1': { workspaceId: WS, mode: 'STUDENT', preset: { kind: 'LAB', codeHash: hashLabCode(CODE_1) } },
+  'STUDENT/LAB-2': { workspaceId: WS, mode: 'STUDENT', preset: { kind: 'LAB', codeHash: hashLabCode(CODE_2) } },
   'CONTROLLED/vazio': { workspaceId: WS, mode: 'CONTROLLED', enabledDefectIds: [] },
-  'CONTROLLED/funcional': { workspaceId: WS, mode: 'CONTROLLED', enabledDefectIds: ['fixture-functional'] },
-  'CONTROLLED/segurança': { workspaceId: WS, mode: 'CONTROLLED', enabledDefectIds: ['fixture-security'] },
+  'CONTROLLED/A': { workspaceId: WS, mode: 'CONTROLLED', enabledDefectIds: [ID_A] },
+  'CONTROLLED/B (segurança)': { workspaceId: WS, mode: 'CONTROLLED', enabledDefectIds: [ID_B] },
 };
 
 describe('defaults', () => {
@@ -40,14 +41,14 @@ describe('catálogo vigente vazio: zero defeitos executáveis', () => {
 describe('matriz modo × preset × ambiente (catálogo fictício)', () => {
   const expected: Record<string, Record<EnvironmentKind, string[]>> = {
     'STUDENT/ALL': {
-      ISOLATED: ['fixture-functional', 'fixture-security', 'fixture-isolated-only'],
-      SHARED: ['fixture-functional'],
+      ISOLATED: [ID_A, ID_B, ID_C],
+      SHARED: [ID_A],
     },
-    'STUDENT/LAB-A': { ISOLATED: ['fixture-functional', 'fixture-security'], SHARED: ['fixture-functional'] },
-    'STUDENT/LAB-B': { ISOLATED: ['fixture-isolated-only'], SHARED: [] },
+    'STUDENT/LAB-1': { ISOLATED: [ID_A, ID_B], SHARED: [ID_A] },
+    'STUDENT/LAB-2': { ISOLATED: [ID_C], SHARED: [] },
     'CONTROLLED/vazio': { ISOLATED: [], SHARED: [] },
-    'CONTROLLED/funcional': { ISOLATED: ['fixture-functional'], SHARED: ['fixture-functional'] },
-    'CONTROLLED/segurança': { ISOLATED: ['fixture-security'], SHARED: [] },
+    'CONTROLLED/A': { ISOLATED: [ID_A], SHARED: [ID_A] },
+    'CONTROLLED/B (segurança)': { ISOLATED: [ID_B], SHARED: [] },
   };
   const matrix = Object.keys(expected).flatMap((name) => ENVIRONMENT_KINDS.map((env) => [name, env] as const));
 
@@ -57,10 +58,10 @@ describe('matriz modo × preset × ambiente (catálogo fictício)', () => {
 
   it('ALL inclui automaticamente um defeito novo permitido, sem mudar a configuração', () => {
     const grown = {
-      defects: [...FIXTURE_CATALOG.defects, { id: 'fixture-new', affectsSecurity: false, allowedEnvironments: ['SHARED'] as const }],
+      defects: [...FIXTURE_CATALOG.defects, { id: 'd-0123456789abcdef', affectsSecurity: false, allowedEnvironments: ['SHARED'] as const }],
       labPresets: FIXTURE_CATALOG.labPresets,
     };
-    expect(resolveEnabledDefects(CONFIGS['STUDENT/ALL']!, grown, 'SHARED')).toEqual(['fixture-functional', 'fixture-new']);
+    expect(resolveEnabledDefects(CONFIGS['STUDENT/ALL']!, grown, 'SHARED')).toEqual([ID_A, 'd-0123456789abcdef']);
   });
 });
 
