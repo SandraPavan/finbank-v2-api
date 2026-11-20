@@ -109,4 +109,38 @@ describe('reconciliação em PostgreSQL real', () => {
     expect(final.consistent).toBe(true);
     expect(final.operationCount).toBe(4 + moved.ok.length + reversals.ok.length);
   });
+
+  it('relata operações desequilibradas encontradas no banco', async () => {
+    const ws = await fundedWorkspace(h, [0n]);
+    const [a] = ws.accounts as [string];
+    // Somente teste: desliga triggers e chaves estrangeiras nesta transação para gravar um estado que
+    // as restrições normalmente impedem (uma operação com um só lançamento e outra sem lançamentos).
+    const ids = await h.db.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL session_replication_role = replica`;
+      const insert = (amount: bigint) => tx.$queryRaw<{ id: string }[]>`
+        INSERT INTO "payment_operation"
+          ("workspace_id", "operation_key", "fingerprint", "debit_account_id", "credit_account_id", "amount_cents")
+        VALUES (${ws.workspaceId}::uuid, ${opKey('unbal')}, ${'c'.repeat(64)}, ${ws.contra}::uuid, ${a}::uuid, ${amount})
+        RETURNING "id"::text AS "id"`;
+      const single = (await insert(10n))[0]!.id;
+      const empty = (await insert(20n))[0]!.id;
+      await tx.$executeRaw`
+        INSERT INTO "ledger_entry" ("workspace_id", "operation_id", "account_id", "amount_cents")
+        VALUES (${ws.workspaceId}::uuid, ${single}::uuid, ${ws.contra}::uuid, ${-10n})`;
+      return { single, empty };
+    });
+
+    const report = await h.reconciliation.reconcile(ws.workspaceId);
+    expect(report.consistent).toBe(false);
+    const unbalanced = report.divergences
+      .filter((d) => d.type === 'UNBALANCED_OPERATION')
+      .sort((x, y) => x.entryCount - y.entryCount);
+    expect(unbalanced).toEqual([
+      { type: 'UNBALANCED_OPERATION', operationId: ids.empty, entryCount: 0, sumCents: 0n },
+      { type: 'UNBALANCED_OPERATION', operationId: ids.single, entryCount: 1, sumCents: -10n },
+    ]);
+    expect(report.divergences.filter((d) => d.type === 'BALANCE_MISMATCH')).toEqual([
+      { type: 'BALANCE_MISMATCH', accountId: ws.contra, recordedCents: 0n, ledgerCents: -10n },
+    ]);
+  });
 });

@@ -77,7 +77,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
   - banco parado.
 
   Em todos os cenários verifica que o payload não traz dados sensíveis e que o liveness continua 200.
-- `test/integration/payment-execution/`: atomicidade (com falha real injetada no PostgreSQL), idempotência sequencial e paralela, concorrência (débitos disputando saldo e transferências cruzadas), isolamento entre dois workspaces, imutabilidade e equilíbrio do ledger, estorno (sequencial, paralelo e concorrente com transferências) e restrições do estorno e da conta por SQL direto. Cada teste cria seu próprio workspace, porque operações e lançamentos não podem ser apagados.
+- `test/integration/payment-execution/`: atomicidade (com falha real injetada no PostgreSQL), idempotência sequencial e paralela, concorrência (débitos disputando saldo e transferências cruzadas), isolamento entre dois workspaces, imutabilidade e equilíbrio do ledger, estorno (sequencial, paralelo e concorrente com transferências) e restrições do estorno e da conta por SQL direto. `test/integration/reconciliation.spec.ts` cobre a reconciliação, inclusive operações desequilibradas gravadas com as restrições desligadas só no teste, e `test/integration/migration-upgrade.spec.ts` aplica a migração do estorno sobre um banco separado que já tem dados no formato anterior. Cada teste cria seu próprio workspace, porque operações e lançamentos não podem ser apagados.
 
 ## Health checks (DEV-005)
 
