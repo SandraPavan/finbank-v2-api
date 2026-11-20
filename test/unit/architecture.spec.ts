@@ -65,3 +65,39 @@ describe('arquitetura do PaymentExecution', () => {
     expect(files.some((f) => f.path.startsWith('payment-execution/') && /@Controller\(/.test(f.text))).toBe(false);
   });
 });
+
+describe('arquitetura da reconciliação', () => {
+  const module = files.filter((f) => f.path.startsWith('reconciliation/'));
+
+  it('encontra os arquivos do módulo (sanidade do teste)', () => {
+    expect(module.some((f) => f.path.startsWith('reconciliation/domain/'))).toBe(true);
+    expect(module.some((f) => f.path.startsWith('reconciliation/adapters/'))).toBe(true);
+  });
+
+  it('domínio e aplicação não importam NestJS, Prisma, HTTP nem infraestrutura', () => {
+    const inner = module.filter(
+      (f) => f.path.startsWith('reconciliation/domain/') || f.path.startsWith('reconciliation/application/'),
+    );
+    expect(inner.length).toBeGreaterThan(0);
+    for (const file of inner) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|generated|persistence|adapters|express/);
+      }
+    }
+  });
+
+  it('não depende do PaymentExecution', () => {
+    for (const file of module) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/payment-execution/);
+      }
+    }
+  });
+
+  it('a leitura é somente leitura e não declara controller', () => {
+    const adapter = module.find((f) => f.path === 'reconciliation/adapters/prisma-reconciliation.reader.ts');
+    expect(adapter?.text).toMatch(/SET TRANSACTION READ ONLY/);
+    expect(adapter?.text).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/);
+    expect(module.some((f) => /@Controller\(|controllers\s*:/.test(f.text))).toBe(false);
+  });
+});

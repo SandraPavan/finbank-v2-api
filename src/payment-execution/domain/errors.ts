@@ -10,6 +10,9 @@ export const PAYMENT_EXECUTION_ERROR_CODES = [
   'DUPLICATE_CONTRA_ACCOUNT',
   'INSUFFICIENT_FUNDS',
   'IDEMPOTENCY_CONFLICT',
+  'OPERATION_NOT_FOUND',
+  'NOT_REVERSIBLE',
+  'ALREADY_REVERSED',
   'EXECUTION_FAILED',
 ] as const;
 
@@ -24,6 +27,9 @@ const MESSAGES: Record<PaymentExecutionErrorCode, string> = {
   DUPLICATE_CONTRA_ACCOUNT: 'O workspace já possui conta de contrapartida',
   INSUFFICIENT_FUNDS: 'Saldo insuficiente',
   IDEMPOTENCY_CONFLICT: 'Chave de operação já utilizada com conteúdo diferente',
+  OPERATION_NOT_FOUND: 'Operação não encontrada no workspace',
+  NOT_REVERSIBLE: 'Operação não pode ser estornada',
+  ALREADY_REVERSED: 'Operação já estornada',
   EXECUTION_FAILED: 'Falha ao executar a operação',
 };
 

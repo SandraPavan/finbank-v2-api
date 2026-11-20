@@ -11,9 +11,13 @@ export const OPERATION_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 
 const COMMAND_KEYS = ['workspaceId', 'operationKey', 'debitAccountId', 'creditAccountId', 'amountCents'] as const;
 
-export interface TransferCommand {
+export interface TransferCommand extends Movement {
   readonly workspaceId: string;
   readonly operationKey: string;
+}
+
+/** Movimentação entre duas contas: o que uma operação debita, credita e o valor. */
+export interface Movement {
   readonly debitAccountId: string;
   readonly creditAccountId: string;
   readonly amountCents: bigint;
@@ -25,7 +29,7 @@ export interface LedgerEntryDraft {
   readonly amountCents: bigint;
 }
 
-function isPlainObject(raw: unknown): raw is Record<string, unknown> {
+export function isPlainObject(raw: unknown): raw is Record<string, unknown> {
   return (
     typeof raw === 'object' && raw !== null && !Array.isArray(raw) && Object.getPrototypeOf(raw) === Object.prototype
   );
@@ -34,6 +38,13 @@ function isPlainObject(raw: unknown): raw is Record<string, unknown> {
 export function parseUuid(raw: unknown, field: string): string {
   if (typeof raw !== 'string' || !UUID_PATTERN.test(raw)) {
     throw invalidInput(field, 'deve ser um UUID em minúsculas');
+  }
+  return raw;
+}
+
+export function parseOperationKey(raw: unknown): string {
+  if (typeof raw !== 'string' || !OPERATION_KEY_PATTERN.test(raw)) {
+    throw invalidInput('operationKey', 'deve ter de 8 a 128 caracteres A-Z, a-z, 0-9, hífen ou sublinhado');
   }
   return raw;
 }
@@ -54,10 +65,7 @@ export function parseTransferCommand(raw: unknown): TransferCommand {
     throw invalidInput('comando', `aceita somente os campos ${COMMAND_KEYS.join(', ')}`);
   }
   const workspaceId = parseUuid(raw['workspaceId'], 'workspaceId');
-  const operationKey = raw['operationKey'];
-  if (typeof operationKey !== 'string' || !OPERATION_KEY_PATTERN.test(operationKey)) {
-    throw invalidInput('operationKey', 'deve ter de 8 a 128 caracteres A-Z, a-z, 0-9, hífen ou sublinhado');
-  }
+  const operationKey = parseOperationKey(raw['operationKey']);
   const debitAccountId = parseUuid(raw['debitAccountId'], 'debitAccountId');
   const creditAccountId = parseUuid(raw['creditAccountId'], 'creditAccountId');
   const amountCents = parseAmountCents(raw['amountCents']);
@@ -82,10 +90,10 @@ export function transferFingerprint(command: TransferCommand): string {
 }
 
 /** Par de lançamentos de dupla entrada; a soma é sempre zero. */
-export function ledgerEntriesFor(command: TransferCommand): readonly [LedgerEntryDraft, LedgerEntryDraft] {
+export function ledgerEntriesFor(movement: Movement): readonly [LedgerEntryDraft, LedgerEntryDraft] {
   return Object.freeze([
-    Object.freeze({ accountId: command.debitAccountId, amountCents: -command.amountCents }),
-    Object.freeze({ accountId: command.creditAccountId, amountCents: command.amountCents }),
+    Object.freeze({ accountId: movement.debitAccountId, amountCents: -movement.amountCents }),
+    Object.freeze({ accountId: movement.creditAccountId, amountCents: movement.amountCents }),
   ] as const);
 }
 

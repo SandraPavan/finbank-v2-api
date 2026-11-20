@@ -6,6 +6,7 @@ import { HealthController } from '../../src/health/health.controller.js';
 import { HealthService } from '../../src/health/health.service.js';
 import { PaymentExecutionService } from '../../src/payment-execution/application/payment-execution.service.js';
 import { PrismaService } from '../../src/persistence/prisma.service.js';
+import { ReconciliationService } from '../../src/reconciliation/application/reconciliation.service.js';
 
 describe('composição e bootstrap da aplicação', () => {
   let app: INestApplication;
@@ -35,9 +36,10 @@ describe('composição e bootstrap da aplicação', () => {
     expect(rows).toEqual([{ ok: 1 }]);
   });
 
-  it('compõe o PaymentExecution sem expor rotas financeiras', async () => {
+  it('compõe o PaymentExecution e a reconciliação sem expor rotas financeiras', async () => {
     expect(app.get(PaymentExecutionService)).toBeInstanceOf(PaymentExecutionService);
-    for (const path of ['/payments', '/payment-execution', '/accounts', '/ledger']) {
+    expect(app.get(ReconciliationService)).toBeInstanceOf(ReconciliationService);
+    for (const path of ['/payments', '/payment-execution', '/accounts', '/ledger', '/reversals', '/reconciliation']) {
       const response = await fetch(`${baseUrl}${path}`, { method: 'POST' });
       expect(response.status, path).toBe(404);
     }

@@ -6,10 +6,13 @@ import { PaymentExecutionService } from '../../../src/payment-execution/applicat
 import { PaymentExecutionError } from '../../../src/payment-execution/domain/errors.js';
 import { databaseErrorCode } from '../../../src/persistence/database-errors.js';
 import { PrismaService } from '../../../src/persistence/prisma.service.js';
+import { PrismaReconciliationReader } from '../../../src/reconciliation/adapters/prisma-reconciliation.reader.js';
+import { ReconciliationService } from '../../../src/reconciliation/application/reconciliation.service.js';
 
 export interface Harness {
   readonly db: PrismaService;
   readonly service: PaymentExecutionService;
+  readonly reconciliation: ReconciliationService;
   close(): Promise<void>;
 }
 
@@ -17,7 +20,8 @@ export async function harness(databaseUrl: string): Promise<Harness> {
   const db = new PrismaService({ databaseUrl });
   await db.onModuleInit();
   const service = new PaymentExecutionService(new PrismaPaymentExecutionStore(db.client));
-  return { db, service, close: () => db.onModuleDestroy() };
+  const reconciliation = new ReconciliationService(new PrismaReconciliationReader(db.client));
+  return { db, service, reconciliation, close: () => db.onModuleDestroy() };
 }
 
 /** Workspace novo por teste: os registros são imutáveis e não são apagados entre testes. */
@@ -122,4 +126,9 @@ export async function sqlState(promise: Promise<unknown>): Promise<string | unde
     return databaseErrorCode(error);
   }
   throw new Error('esperava rejeição do banco');
+}
+
+/** Linha completa da operação, para provar que ela não muda. */
+export async function operationRow(h: Harness, operationId: string): Promise<unknown> {
+  return h.db.client.paymentOperation.findUniqueOrThrow({ where: { id: operationId } });
 }

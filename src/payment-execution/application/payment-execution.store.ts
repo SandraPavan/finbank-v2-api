@@ -1,8 +1,12 @@
+import type { OperationType } from '../domain/reversal.js';
 import type { AccountKind, LedgerEntryDraft } from '../domain/transfer.js';
 
-/** Operação já registrada para uma chave (workspace + operationKey). */
+/** Operação já registrada no workspace. */
 export interface StoredOperation {
   readonly operationId: string;
+  readonly type: OperationType;
+  /** Operação estornada (somente REVERSAL). */
+  readonly reversesOperationId: string | null;
   readonly fingerprint: string;
   readonly debitAccountId: string;
   readonly creditAccountId: string;
@@ -26,21 +30,30 @@ export interface RegisterOperationInput {
   readonly workspaceId: string;
   readonly operationKey: string;
   readonly fingerprint: string;
+  readonly type: OperationType;
+  readonly reversesOperationId: string | null;
   readonly debitAccountId: string;
   readonly creditAccountId: string;
   readonly amountCents: bigint;
 }
 
+/**
+ * CREATED: operação nova registrada. KEY_EXISTS: a chave já existe no workspace (repetição ou conflito,
+ * decidido pela aplicação). ALREADY_REVERSED: a operação de origem já tem outro estorno.
+ */
 export type RegisterOperationResult =
-  | { readonly created: true; readonly operationId: string }
-  | { readonly created: false; readonly existing: StoredOperation };
+  | { readonly outcome: 'CREATED'; readonly operationId: string }
+  | { readonly outcome: 'KEY_EXISTS'; readonly existing: StoredOperation }
+  | { readonly outcome: 'ALREADY_REVERSED' };
 
 /**
  * Unidade de trabalho transacional. Toda a decisão financeira fica na aplicação;
  * o adaptador apenas persiste, trava e traduz erros do banco para erros tipados.
  */
 export interface PaymentExecutionTransaction {
-  /** Registra a operação; se a chave já existir no workspace, devolve a existente. */
+  /** Operação do workspace pelo id; operação de outro workspace não é devolvida. */
+  findOperation(workspaceId: string, operationId: string): Promise<StoredOperation | null>;
+  /** Registra a operação; chave existente ou estorno já existente não inserem nada. */
   registerOperation(input: RegisterOperationInput): Promise<RegisterOperationResult>;
   /** Trava as contas do workspace em ordem de id; contas ausentes não são devolvidas. */
   lockAccounts(workspaceId: string, accountIds: readonly string[]): Promise<readonly LockedAccount[]>;

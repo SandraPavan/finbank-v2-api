@@ -7,6 +7,7 @@ import type {
   PaymentExecutionTransaction,
   RegisterOperationInput,
   RegisterOperationResult,
+  StoredOperation,
 } from '../application/payment-execution.store.js';
 import { PaymentExecutionError } from '../domain/errors.js';
 import type { AccountKind, LedgerEntryDraft } from '../domain/transfer.js';
@@ -23,40 +24,80 @@ const NUMERIC_OUT_OF_RANGE = '22003';
 
 type Tx = Prisma.TransactionClient;
 
+const OPERATION_SELECT = {
+  id: true,
+  type: true,
+  reversesOperationId: true,
+  fingerprint: true,
+  debitAccountId: true,
+  creditAccountId: true,
+  amountCents: true,
+} as const;
+
+type OperationRow = Prisma.PaymentOperationGetPayload<{ select: typeof OPERATION_SELECT }>;
+
+function toStored(row: OperationRow): StoredOperation {
+  return {
+    operationId: row.id,
+    type: row.type,
+    reversesOperationId: row.reversesOperationId,
+    fingerprint: row.fingerprint,
+    debitAccountId: row.debitAccountId,
+    creditAccountId: row.creditAccountId,
+    amountCents: row.amountCents,
+  };
+}
+
 class PrismaPaymentExecutionTransaction implements PaymentExecutionTransaction {
   constructor(private readonly tx: Tx) {}
 
+  async findOperation(workspaceId: string, operationId: string): Promise<StoredOperation | null> {
+    const operation = await this.tx.paymentOperation.findUnique({
+      where: { workspaceId_id: { workspaceId, id: operationId } },
+      select: OPERATION_SELECT,
+    });
+    return operation === null ? null : toStored(operation);
+  }
+
   async registerOperation(input: RegisterOperationInput): Promise<RegisterOperationResult> {
-    // ON CONFLICT espera a transação concorrente com a mesma chave terminar:
-    // se ela confirmou, nada é inserido e a operação existente é lida e comparada.
+    // ON CONFLICT sem alvo cobre a chave (workspace, operationKey) e o vínculo único do estorno.
+    // Em conflito com transação concorrente, espera ela terminar: se confirmou, nada é inserido
+    // e a operação existente é lida pela chave e, não havendo, pela operação de origem.
     const inserted = await this.tx.$queryRaw<{ id: string }[]>`
       INSERT INTO "payment_operation"
-        ("workspace_id", "operation_key", "fingerprint", "debit_account_id", "credit_account_id", "amount_cents")
+        ("workspace_id", "operation_key", "fingerprint", "type", "reverses_operation_id",
+         "debit_account_id", "credit_account_id", "amount_cents")
       VALUES (${input.workspaceId}::uuid, ${input.operationKey}, ${input.fingerprint},
+              ${input.type}::"operation_type", ${input.reversesOperationId}::uuid,
               ${input.debitAccountId}::uuid, ${input.creditAccountId}::uuid, ${input.amountCents})
-      ON CONFLICT ("workspace_id", "operation_key") DO NOTHING
+      ON CONFLICT DO NOTHING
       RETURNING "id"::text AS "id"`;
     const created = inserted[0];
     if (created !== undefined) {
-      return { created: true, operationId: created.id };
+      return { outcome: 'CREATED', operationId: created.id };
     }
     const existing = await this.tx.paymentOperation.findUnique({
       where: { workspaceId_operationKey: { workspaceId: input.workspaceId, operationKey: input.operationKey } },
-      select: { id: true, fingerprint: true, debitAccountId: true, creditAccountId: true, amountCents: true },
+      select: OPERATION_SELECT,
     });
-    if (existing === null) {
-      throw new PaymentExecutionError('EXECUTION_FAILED');
+    if (existing !== null) {
+      return { outcome: 'KEY_EXISTS', existing: toStored(existing) };
     }
-    return {
-      created: false,
-      existing: {
-        operationId: existing.id,
-        fingerprint: existing.fingerprint,
-        debitAccountId: existing.debitAccountId,
-        creditAccountId: existing.creditAccountId,
-        amountCents: existing.amountCents,
-      },
-    };
+    if (input.reversesOperationId !== null) {
+      const reversal = await this.tx.paymentOperation.findUnique({
+        where: {
+          workspaceId_reversesOperationId: {
+            workspaceId: input.workspaceId,
+            reversesOperationId: input.reversesOperationId,
+          },
+        },
+        select: { id: true },
+      });
+      if (reversal !== null) {
+        return { outcome: 'ALREADY_REVERSED' };
+      }
+    }
+    throw new PaymentExecutionError('EXECUTION_FAILED');
   }
 
   async lockAccounts(workspaceId: string, accountIds: readonly string[]): Promise<readonly LockedAccount[]> {
@@ -134,7 +175,7 @@ function translate(error: unknown, onForeignKey: 'ACCOUNT_NOT_FOUND' | 'WORKSPAC
       }
       break;
     case CHECK_VIOLATION:
-      // Última defesa do banco: saldo negativo em conta comum ou operação desequilibrada.
+      // Última defesa do banco: saldo negativo em conta comum, operação desequilibrada ou estorno incoerente.
       return new PaymentExecutionError('EXECUTION_FAILED', { technicalCode, cause: error });
     case NUMERIC_OUT_OF_RANGE:
       return new PaymentExecutionError('AMOUNT_OUT_OF_RANGE', { technicalCode });

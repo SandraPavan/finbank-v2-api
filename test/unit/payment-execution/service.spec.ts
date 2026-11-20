@@ -12,11 +12,13 @@ import type {
 } from '../../../src/payment-execution/application/payment-execution.store.js';
 import { PaymentExecutionService } from '../../../src/payment-execution/application/payment-execution.service.js';
 import { PaymentExecutionError } from '../../../src/payment-execution/domain/errors.js';
+import { MAX_CENTS } from '../../../src/payment-execution/domain/money.js';
 import type { AccountKind, LedgerEntryDraft } from '../../../src/payment-execution/domain/transfer.js';
 
 const WS = '0b6f7c1e-4a2d-4c3b-9e8f-112233445566';
 const A = '1a1a1a1a-1111-4111-8111-111111111111';
 const B = '2b2b2b2b-2222-4222-8222-222222222222';
+const opId = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 class FakeStore implements PaymentExecutionStore {
   accounts = new Map<string, LockedAccount>();
@@ -26,16 +28,27 @@ class FakeStore implements PaymentExecutionStore {
 
   transaction<T>(work: (tx: PaymentExecutionTransaction) => Promise<T>): Promise<T> {
     const tx: PaymentExecutionTransaction = {
+      findOperation: (ws, id) => {
+        this.calls.push('find');
+        const found = [...this.operations.values()].find((op) => op.operationId === id && op.input.workspaceId === ws);
+        return Promise.resolve(found ?? null);
+      },
       registerOperation: (input): Promise<RegisterOperationResult> => {
         this.calls.push('register');
         const key = `${input.workspaceId}|${input.operationKey}`;
         const existing = this.operations.get(key);
         if (existing) {
-          return Promise.resolve({ created: false, existing });
+          return Promise.resolve({ outcome: 'KEY_EXISTS', existing });
         }
-        const op = { operationId: `op-${this.operations.size + 1}`, ...input, input };
+        if (
+          input.reversesOperationId !== null &&
+          [...this.operations.values()].some((op) => op.reversesOperationId === input.reversesOperationId)
+        ) {
+          return Promise.resolve({ outcome: 'ALREADY_REVERSED' });
+        }
+        const op = { operationId: opId(this.operations.size + 1), ...input, input };
         this.operations.set(key, op);
-        return Promise.resolve({ created: true, operationId: op.operationId });
+        return Promise.resolve({ outcome: 'CREATED', operationId: op.operationId });
       },
       lockAccounts: (_ws, ids) => {
         this.calls.push('lock');
@@ -90,7 +103,13 @@ describe('PaymentExecutionService.execute', () => {
   it('registra, trava, lança e atualiza os dois saldos nessa ordem', async () => {
     const { store, service } = setup();
     const result = await service.execute(cmd());
-    expect(result).toMatchObject({ operationId: 'op-1', amountCents: 300n, replayed: false });
+    expect(result).toMatchObject({
+      operationId: opId(1),
+      type: 'TRANSFER',
+      reversesOperationId: null,
+      amountCents: 300n,
+      replayed: false,
+    });
     expect(store.calls).toEqual(['register', 'lock', 'entries', `balance:${A}`, `balance:${B}`]);
     expect(store.accounts.get(A)?.balanceCents).toBe(700n);
     expect(store.accounts.get(B)?.balanceCents).toBe(300n);
@@ -151,5 +170,117 @@ describe('PaymentExecutionService.openAccount', () => {
     expect(await service.openAccount(WS, 'CONTRA')).toMatchObject({ kind: 'CONTRA', balanceCents: 0n });
     expect((await rejection(service.openAccount('x', 'STANDARD'))).field).toBe('workspaceId');
     expect((await rejection(service.openAccount(WS, 'ADMIN'))).field).toBe('kind');
+  });
+});
+
+describe('PaymentExecutionService.reverse', () => {
+  const rev = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    workspaceId: WS,
+    operationKey: 'rev-key-0001',
+    originalOperationId: opId(1),
+    ...overrides,
+  });
+
+  async function transferred(debitBalance = 1_000n): Promise<{ store: FakeStore; service: PaymentExecutionService }> {
+    const ctx = setup(debitBalance);
+    await ctx.service.execute(cmd());
+    ctx.store.calls = [];
+    return ctx;
+  }
+
+  it('valida o comando antes de abrir transação', async () => {
+    const { store, service } = await transferred();
+    for (const bad of [rev({ originalOperationId: 'op-1' }), rev({ operationKey: 'curta' }), rev({ extra: 1 })]) {
+      expect((await rejection(service.reverse(bad))).code).toBe('INVALID_INPUT');
+    }
+    expect(store.calls).toEqual([]);
+  });
+
+  it('lê a original, registra o vínculo, trava e aplica a movimentação invertida', async () => {
+    const { store, service } = await transferred();
+    const result = await service.reverse(rev());
+    expect(result).toEqual({
+      operationId: opId(2),
+      workspaceId: WS,
+      type: 'REVERSAL',
+      reversesOperationId: opId(1),
+      debitAccountId: B,
+      creditAccountId: A,
+      amountCents: 300n,
+      replayed: false,
+    });
+    expect(store.calls).toEqual(['find', 'register', 'lock', 'entries', `balance:${B}`, `balance:${A}`]);
+    expect(store.accounts.get(A)?.balanceCents).toBe(1_000n);
+    expect(store.accounts.get(B)?.balanceCents).toBe(0n);
+    expect(store.entries.slice(2)).toEqual([
+      { accountId: B, amountCents: -300n },
+      { accountId: A, amountCents: 300n },
+    ]);
+  });
+
+  it('repetição devolve o estorno original sem novos efeitos', async () => {
+    const { store, service } = await transferred();
+    const first = await service.reverse(rev());
+    store.calls = [];
+    expect(await service.reverse(rev())).toEqual({ ...first, replayed: true });
+    expect(store.calls).toEqual(['find', 'register']);
+    expect(store.entries).toHaveLength(4);
+  });
+
+  it('operação inexistente é OPERATION_NOT_FOUND, sem registro', async () => {
+    const { store, service } = await transferred();
+    expect((await rejection(service.reverse(rev({ originalOperationId: opId(9) })))).code).toBe('OPERATION_NOT_FOUND');
+    expect(store.calls).toEqual(['find']);
+  });
+
+  it('operação de outro workspace é OPERATION_NOT_FOUND', async () => {
+    const { service } = await transferred();
+    const other = '9d9d9d9d-9999-4999-8999-999999999999';
+    expect((await rejection(service.reverse(rev({ workspaceId: other })))).code).toBe('OPERATION_NOT_FOUND');
+  });
+
+  it('estorno de estorno é NOT_REVERSIBLE, sem registro', async () => {
+    const { store, service } = await transferred();
+    await service.reverse(rev());
+    store.calls = [];
+    const error = await rejection(service.reverse(rev({ operationKey: 'rev-key-0002', originalOperationId: opId(2) })));
+    expect(error.code).toBe('NOT_REVERSIBLE');
+    expect(store.calls).toEqual(['find']);
+  });
+
+  it('segundo estorno com outra chave é ALREADY_REVERSED, sem lançamentos', async () => {
+    const { store, service } = await transferred();
+    await service.reverse(rev());
+    expect((await rejection(service.reverse(rev({ operationKey: 'rev-key-0002' })))).code).toBe('ALREADY_REVERSED');
+    expect(store.entries).toHaveLength(4);
+  });
+
+  it('chave já usada por uma transferência é IDEMPOTENCY_CONFLICT', async () => {
+    const { store, service } = await transferred();
+    expect((await rejection(service.reverse(rev({ operationKey: 'op-key-0001' })))).code).toBe('IDEMPOTENCY_CONFLICT');
+    expect(store.entries).toHaveLength(2);
+  });
+
+  it('mesma chave para outra operação de origem é IDEMPOTENCY_CONFLICT', async () => {
+    const { store, service } = await transferred();
+    await service.execute(cmd({ operationKey: 'op-key-0002', amountCents: 100n }));
+    await service.reverse(rev());
+    expect((await rejection(service.reverse(rev({ originalOperationId: opId(2) })))).code).toBe('IDEMPOTENCY_CONFLICT');
+    expect(store.entries).toHaveLength(6);
+  });
+
+  it('conta comum a debitar sem saldo é INSUFFICIENT_FUNDS, sem lançamentos', async () => {
+    const { store, service } = await transferred();
+    store.accounts.set(B, { id: B, kind: 'STANDARD', balanceCents: 299n });
+    expect((await rejection(service.reverse(rev()))).code).toBe('INSUFFICIENT_FUNDS');
+    expect(store.entries).toHaveLength(2);
+    expect(store.accounts.get(A)?.balanceCents).toBe(700n);
+  });
+
+  it('crédito acima do limite técnico é AMOUNT_OUT_OF_RANGE', async () => {
+    const { store, service } = await transferred();
+    store.accounts.set(A, { id: A, kind: 'STANDARD', balanceCents: MAX_CENTS });
+    expect((await rejection(service.reverse(rev()))).code).toBe('AMOUNT_OUT_OF_RANGE');
+    expect(store.entries).toHaveLength(2);
   });
 });

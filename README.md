@@ -2,7 +2,7 @@
 
 API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Este repositório é público e autossuficiente: setup, execução e testes dependem só dele (e de `finbank-v2-web` e `finbank-v2-infra` para o ambiente completo). As referências a histórias (DEV-xxx) e decisões (PD-xx) vêm da documentação interna da equipe e não são necessárias para usar o projeto.
 
-Estado atual (DEV-001, DEV-003, DEV-005, DEV-006 e DEV-010): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada e PaymentExecution, sem rota exposta). Sem PIX, autenticação, worker ou rotas financeiras.
+Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010 e DEV-011): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta). Sem PIX, autenticação, worker ou rotas financeiras.
 
 ## Runtime e versões (PD-02, resolvida na DEV-001)
 
@@ -54,19 +54,20 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - `src/persistence/prisma.service.ts`: adaptador dono do ciclo de vida. Cria o cliente com `@prisma/adapter-pg` (timeout de conexão de 5 s). Na inicialização executa `SELECT 1` (o `$connect` do driver adapter é preguiçoso) e falha imediatamente se o banco estiver indisponível; no encerramento desconecta.
 - `src/persistence/database-errors.ts`: toda falha de conexão vira `DatabaseUnavailableError`, com mensagem genérica e somente um código técnico em allowlist (por exemplo `DatabaseNotReachable` ou o código PostgreSQL `28P01`). URL, host, porta, usuário, senha e a causa original não são expostos.
 - Banco indisponível na subida: a aplicação registra a mensagem sanitizada e encerra com código 1.
-- O `schema.prisma` declara somente os modelos do núcleo de execução financeira (`Workspace`, `Account`, `PaymentOperation`, `LedgerEntry`). Restrições que o Prisma não expressa ficam na migração SQL (veja a seção Execução financeira).
+- O `schema.prisma` declara somente os modelos do núcleo de execução financeira (`Workspace`, `Account`, `PaymentOperation`, `LedgerEntry` e os enums `AccountKind` e `OperationType`). Restrições que o Prisma não expressa ficam na migração SQL (veja a seção Execução financeira).
 
 ## Migrações
 
 - Migrações ficam em `prisma/migrations/` e são aplicadas com `npm run prisma:migrate:deploy`.
 - A migração `00000000000000_baseline` é técnica: valida o mecanismo e não cria tabelas.
 - A migração `20261119000000_payment_execution_core` é aditiva: cria as tabelas do núcleo financeiro e, em SQL manual, os `CHECK`s, o índice parcial e os triggers de imutabilidade e equilíbrio.
-- A suíte de integração aplica as migrações no `global-setup.ts` e verifica em banco descartável: as duas migrações registradas em ordem, repetir é idempotente, as restrições manuais existem no catálogo do PostgreSQL, `migrate status` informa banco atualizado e `migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` não encontra divergência.
+- A migração `20261120000000_payment_reversal_reconciliation` é aditiva: acrescenta o tipo da operação (as existentes ficam `TRANSFER`) e o vínculo do estorno e, em SQL manual, o `CHECK` de coerência do vínculo, o trigger que confere o estorno contra a operação de origem e o trigger que impede alterar a identidade da conta.
+- A suíte de integração aplica as migrações no `global-setup.ts` e verifica em banco descartável: as migrações registradas em ordem, repetir é idempotente, as restrições manuais existem no catálogo do PostgreSQL, `migrate status` informa banco atualizado e `migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` não encontra divergência.
 - Não executar reset nem migração destrutiva em banco persistente sem autorização explícita.
 
 ## Testes
 
-- `test/unit/`: configuração, sanitização de erros, mapeamento do `HealthService` (readiness e transições de log), matriz dos modos educacionais (`education/`), domínio e lógica de decisão do PaymentExecution (`payment-execution/`) e regras de arquitetura (`architecture.spec.ts`), sem banco.
+- `test/unit/`: configuração, sanitização de erros, mapeamento do `HealthService` (readiness e transições de log), matriz dos modos educacionais (`education/`), domínio e lógica de decisão do PaymentExecution (`payment-execution/`), cálculo da reconciliação (`reconciliation/`) e regras de arquitetura (`architecture.spec.ts`), sem banco.
 - `test/integration/`: o `global-setup.ts` sobe um container `postgres:18.6-alpine` efêmero (porta aleatória, sem volume) via Testcontainers e o remove ao final. Cobre conexão real, abertura/encerramento de sessões (`pg_stat_activity`), indisponibilidade, credencial incorreta, timeout, migrações e bootstrap HTTP. Nunca substituir PostgreSQL por SQLite.
 - `test/integration/health.api.spec.ts`: contrato HTTP de health com PactumJS (3.9.1), contra um container PostgreSQL próprio. Cobre:
   - banco disponível;
@@ -76,7 +77,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
   - banco parado.
 
   Em todos os cenários verifica que o payload não traz dados sensíveis e que o liveness continua 200.
-- `test/integration/payment-execution/`: atomicidade (com falha real injetada no PostgreSQL), idempotência sequencial e paralela, concorrência (débitos disputando saldo e transferências cruzadas), isolamento entre dois workspaces, imutabilidade e equilíbrio do ledger. Cada teste cria seu próprio workspace, porque operações e lançamentos não podem ser apagados.
+- `test/integration/payment-execution/`: atomicidade (com falha real injetada no PostgreSQL), idempotência sequencial e paralela, concorrência (débitos disputando saldo e transferências cruzadas), isolamento entre dois workspaces, imutabilidade e equilíbrio do ledger, estorno (sequencial, paralelo e concorrente com transferências) e restrições do estorno e da conta por SQL direto. Cada teste cria seu próprio workspace, porque operações e lançamentos não podem ser apagados.
 
 ## Health checks (DEV-005)
 
@@ -113,7 +114,15 @@ Ainda não há endpoint, persistência nem variável de ambiente, porque depende
 - **Workspace:** chave de escopo de dados, não autorização. Chaves estrangeiras compostas `(workspace_id, account_id)` impedem misturar workspaces; conta inexistente ou de outro workspace devolve o mesmo `ACCOUNT_NOT_FOUND`.
 - **No banco:** `UPDATE`, `DELETE` e `TRUNCATE` em `payment_operation` e `ledger_entry` são rejeitados (SQLSTATE `23001`); um trigger adiado para o commit exige dois lançamentos por operação, com débito e crédito iguais ao valor; `CHECK`s cobrem valor positivo, contas distintas e saldo não negativo de `STANDARD`.
 - Uma operação rejeitada não é registrada: a mesma chave pode ser usada numa nova tentativa.
-- Fora deste módulo: estorno compensatório, reconciliação, rotas, autenticação e PIX.
+- Fora deste módulo: reconciliação (`src/reconciliation/`), rotas, autenticação e PIX.
+
+## Estorno e reconciliação (DEV-011)
+
+- **Estorno:** `PaymentExecutionService.reverse({ workspaceId, operationKey, originalOperationId })` grava uma nova operação `REVERSAL` vinculada, com as contas invertidas e o mesmo valor; a operação original e seus lançamentos não mudam. Somente estorno total, no máximo um por operação, e estorno de estorno é proibido (`NOT_REVERSIBLE`). A chave tem idempotência própria (impressão digital versão 2, que nunca coincide com a de uma transferência). Operação inexistente ou de outro workspace devolve `OPERATION_NOT_FOUND`; conta `STANDARD` sem saldo para devolver, `INSUFFICIENT_FUNDS`; operação já estornada por outra chave, `ALREADY_REVERSED`.
+- **Registro:** `ON CONFLICT DO NOTHING` sem alvo cobre a chave e o vínculo único; sem linha inserida, o adaptador procura pela chave (repetição ou conflito) e depois pela operação de origem (já estornada).
+- **No banco:** `CHECK` liga o tipo ao vínculo; chave estrangeira composta `(workspace_id, reverses_operation_id)`; índice único do vínculo; trigger confere que o estorno espelha uma `TRANSFER` do mesmo workspace (`23514`); trigger rejeita alterar `id`, `workspace_id` ou `kind` de uma conta (`23001`).
+- **Reconciliação:** `src/reconciliation/` (`ReconciliationService.reconcile(workspaceId)`) compara, por workspace, o saldo gravado com a soma do ledger, o equilíbrio de cada operação e o total do workspace, e devolve um relatório com as divergências (`BALANCE_MISMATCH`, `UNBALANCED_OPERATION`, `WORKSPACE_TOTAL_NONZERO`). Lê em uma transação `REPEATABLE READ` somente leitura, sem travar as execuções; não corrige nada e não depende do PaymentExecution. Workspace inexistente devolve `WORKSPACE_NOT_FOUND`.
+- O saldo materializado ainda pode ser alterado por SQL com privilégio de escrita; a reconciliação detecta a divergência, mas não a impede.
 
 ## Convenção de módulos
 
@@ -122,7 +131,7 @@ Ainda não há endpoint, persistência nem variável de ambiente, porque depende
 - `src/<módulo>/`: módulo NestJS. Controllers traduzem HTTP e delegam a serviços de caso de uso.
 - `src/persistence/`: adaptador de infraestrutura; sem regras de negócio. Portas de repositório serão criadas quando houver caso de uso concreto.
 - Quando houver regra de domínio, ela fica em código sem dependência de NestJS, HTTP ou Prisma; portas e adaptadores são criados somente quando houver necessidade concreta (sem pastas ou interfaces vazias).
-- PaymentExecution (`src/payment-execution/`) é o único módulo autorizado a alterar saldos; `test/unit/architecture.spec.ts` falha se outro arquivo de `src/` escrever em contas, operações ou ledger.
+- PaymentExecution (`src/payment-execution/`) é o único módulo autorizado a alterar saldos; `test/unit/architecture.spec.ts` falha se outro arquivo de `src/` escrever em contas, operações ou ledger. A reconciliação (`src/reconciliation/`) só lê.
 
 ## Imagem Docker (DEV-004)
 

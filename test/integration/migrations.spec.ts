@@ -37,7 +37,14 @@ describe('migrações Prisma em banco descartável', () => {
     const schema = readFileSync(resolve('prisma/schema.prisma'), 'utf8');
     const declared = [...schema.matchAll(/^\s*(model|enum|view)\s+(\w+)/gm)].map((m) => `${m[1]} ${m[2]}`);
     expect(declared.sort()).toEqual(
-      ['enum AccountKind', 'model Account', 'model LedgerEntry', 'model PaymentOperation', 'model Workspace'].sort(),
+      [
+        'enum AccountKind',
+        'enum OperationType',
+        'model Account',
+        'model LedgerEntry',
+        'model PaymentOperation',
+        'model Workspace',
+      ].sort(),
     );
   });
 
@@ -47,6 +54,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(rows).toEqual([
       { migration_name: '00000000000000_baseline', finished: true },
       { migration_name: '20261119000000_payment_execution_core', finished: true },
+      { migration_name: '20261120000000_payment_reversal_reconciliation', finished: true },
     ]);
   });
 
@@ -55,7 +63,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(2);
+    expect(rows[0]?.total).toBe(3);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -94,21 +102,28 @@ describe('migrações Prisma em banco descartável', () => {
       'payment_operation_distinct_accounts',
       'payment_operation_fingerprint_format',
       'payment_operation_key_format',
+      'payment_operation_reversal_link',
     ]);
 
     const triggers = await db.client.$queryRaw<{ tgname: string; deferred: boolean }[]>`
       SELECT tgname, tginitdeferred AS deferred FROM pg_trigger WHERE NOT tgisinternal ORDER BY tgname`;
     expect(triggers).toEqual([
+      { tgname: 'account_identity_immutable', deferred: false },
       { tgname: 'ledger_entry_balanced', deferred: true },
       { tgname: 'ledger_entry_immutable', deferred: false },
       { tgname: 'ledger_entry_no_truncate', deferred: false },
       { tgname: 'payment_operation_balanced', deferred: true },
       { tgname: 'payment_operation_immutable', deferred: false },
       { tgname: 'payment_operation_no_truncate', deferred: false },
+      { tgname: 'payment_operation_reversal_matches', deferred: false },
     ]);
 
     const partial = await db.client.$queryRaw<{ indexdef: string }[]>`
       SELECT indexdef FROM pg_indexes WHERE indexname = 'account_one_contra_per_workspace'`;
     expect(partial[0]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id\) WHERE \(kind = 'CONTRA'/);
+
+    const reversalLink = await db.client.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes WHERE indexname = 'payment_operation_workspace_id_reverses_operation_id_key'`;
+    expect(reversalLink[0]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id, reverses_operation_id\)/);
   });
 });
