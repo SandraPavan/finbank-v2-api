@@ -7,7 +7,7 @@ describe('PaymentExecution: imutabilidade de operações e lançamentos (Postgre
   let operationId: string;
 
   beforeAll(async () => {
-    h = await harness(inject('databaseUrl'));
+    h = await harness(inject('databaseUrl'), inject('appDatabaseUrl'));
     const ws = await fundedWorkspace(h, [100n, 0n]);
     workspaceId = ws.workspaceId;
     const result = await h.service.execute({

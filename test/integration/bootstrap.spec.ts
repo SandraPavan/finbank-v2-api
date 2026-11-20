@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { AppModule } from '../../src/app.module.js';
+import { TEST_RUNTIME_USER } from './global-setup.js';
 import { HealthController } from '../../src/health/health.controller.js';
 import { HealthService } from '../../src/health/health.service.js';
 import { PaymentExecutionService } from '../../src/payment-execution/application/payment-execution.service.js';
@@ -14,7 +15,7 @@ describe('composição e bootstrap da aplicação', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule.forRoot({ port: 0, databaseUrl: inject('databaseUrl') })],
+      imports: [AppModule.forRoot({ port: 0, databaseUrl: inject('appDatabaseUrl') })],
     }).compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
@@ -34,6 +35,12 @@ describe('composição e bootstrap da aplicação', () => {
     const prisma = app.get(PrismaService);
     const rows = await prisma.client.$queryRaw<{ ok: number }[]>`SELECT 1::int AS ok`;
     expect(rows).toEqual([{ ok: 1 }]);
+  });
+
+  it('conecta com o usuário de execução, não com o dono do esquema', async () => {
+    const prisma = app.get(PrismaService);
+    const rows = await prisma.client.$queryRaw<{ user: string }[]>`SELECT current_user::text AS "user"`;
+    expect(rows).toEqual([{ user: TEST_RUNTIME_USER }]);
   });
 
   it('compõe o PaymentExecution e a reconciliação sem expor rotas financeiras', async () => {

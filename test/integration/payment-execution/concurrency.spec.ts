@@ -10,7 +10,7 @@ describe('PaymentExecution: concorrência real no PostgreSQL', () => {
   let h: Harness;
 
   beforeAll(async () => {
-    h = await harness(inject('databaseUrl'));
+    h = await harness(inject('databaseUrl'), inject('appDatabaseUrl'));
   });
 
   afterAll(async () => {

@@ -55,6 +55,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '00000000000000_baseline', finished: true },
       { migration_name: '20261119000000_payment_execution_core', finished: true },
       { migration_name: '20261120000000_payment_reversal_reconciliation', finished: true },
+      { migration_name: '20261121000000_runtime_role_privileges', finished: true },
     ]);
   });
 
@@ -63,7 +64,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(3);
+    expect(rows[0]?.total).toBe(4);
   });
 
   it('migrate status informa banco atualizado', async () => {

@@ -1,4 +1,4 @@
-// Migração da DEV-011 aplicada sobre um banco que já tem dados do núcleo anterior.
+// Migrações posteriores ao núcleo (estorno e papel de execução) aplicadas sobre um banco com dados anteriores.
 import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -13,7 +13,7 @@ const run = promisify(execFile);
 const prismaBin = resolve('node_modules/.bin/prisma');
 const UPGRADE_DB = 'finbank_v2_upgrade_check';
 const BEFORE = ['00000000000000_baseline', '20261119000000_payment_execution_core'];
-const NEXT = '20261120000000_payment_reversal_reconciliation';
+const AFTER = ['20261120000000_payment_reversal_reconciliation', '20261121000000_runtime_role_privileges'];
 
 const WS = '11111111-1111-4111-8111-111111111111';
 const CONTRA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -26,13 +26,16 @@ async function prisma(databaseUrl: string, ...args: string[]): Promise<void> {
 
 describe('migração aditiva sobre dados existentes', () => {
   const mainUrl = inject('databaseUrl');
-  const upgradeUrl = (() => {
-    const url = new URL(mainUrl);
+  const inUpgradeDb = (base: string): string => {
+    const url = new URL(base);
     url.pathname = `/${UPGRADE_DB}`;
     return url.toString();
-  })();
+  };
+  const upgradeUrl = inUpgradeDb(mainUrl);
+  const appUpgradeUrl = inUpgradeDb(inject('appDatabaseUrl'));
   let main: PrismaService;
   let upgraded: PrismaService | undefined;
+  let runtime: PrismaService | undefined;
 
   beforeAll(async () => {
     main = new PrismaService({ databaseUrl: mainUrl });
@@ -41,12 +44,13 @@ describe('migração aditiva sobre dados existentes', () => {
   });
 
   afterAll(async () => {
+    await runtime?.onModuleDestroy();
     await upgraded?.onModuleDestroy();
     await main?.client.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${UPGRADE_DB}" WITH (FORCE)`);
     await main?.onModuleDestroy();
   });
 
-  it('preserva operações anteriores como TRANSFER e permite estorná-las', async () => {
+  it('preserva operações anteriores como TRANSFER e permite estorná-las pelo usuário de execução', async () => {
     for (const migration of BEFORE) {
       await prisma(upgradeUrl, 'db', 'execute', '--file', `prisma/migrations/${migration}/migration.sql`);
     }
@@ -71,17 +75,22 @@ describe('migração aditiva sobre dados existentes', () => {
       await tx.$executeRaw`UPDATE "account" SET "balance_cents" = 500 WHERE "id" = ${ACCOUNT}::uuid`;
     });
 
-    await prisma(upgradeUrl, 'db', 'execute', '--file', `prisma/migrations/${NEXT}/migration.sql`);
+    for (const migration of AFTER) {
+      await prisma(upgradeUrl, 'db', 'execute', '--file', `prisma/migrations/${migration}/migration.sql`);
+    }
 
     const rows = await db.$queryRaw<{ type: string; linked: boolean }[]>`
       SELECT "type"::text AS "type", "reverses_operation_id" IS NOT NULL AS "linked" FROM "payment_operation"`;
     expect(rows).toEqual([{ type: 'TRANSFER', linked: false }]);
 
-    const service = new PaymentExecutionService(new PrismaPaymentExecutionStore(db));
+    // Estorno e reconciliação pelo usuário de execução, com as concessões da migração nova.
+    runtime = new PrismaService({ databaseUrl: appUpgradeUrl });
+    await runtime.onModuleInit();
+    const service = new PaymentExecutionService(new PrismaPaymentExecutionStore(runtime.client));
     const reversal = await service.reverse({ workspaceId: WS, operationKey: 'earlier-rev-0001', originalOperationId: EARLIER_OP });
     expect(reversal).toMatchObject({ type: 'REVERSAL', reversesOperationId: EARLIER_OP, amountCents: 500n, replayed: false });
 
-    const report = await new ReconciliationService(new PrismaReconciliationReader(db)).reconcile(WS);
+    const report = await new ReconciliationService(new PrismaReconciliationReader(runtime.client)).reconcile(WS);
     expect(report).toMatchObject({ accountCount: 2, operationCount: 2, consistent: true });
     const balances = await db.account.findMany({ select: { balanceCents: true } });
     expect(balances.map((b) => b.balanceCents)).toEqual([0n, 0n]);

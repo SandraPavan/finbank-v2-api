@@ -6,7 +6,7 @@ describe('reconciliação em PostgreSQL real', () => {
   let h: Harness;
 
   beforeAll(async () => {
-    h = await harness(inject('databaseUrl'));
+    h = await harness(inject('databaseUrl'), inject('appDatabaseUrl'));
   });
 
   afterAll(async () => {

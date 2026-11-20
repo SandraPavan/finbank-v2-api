@@ -2,7 +2,7 @@
 
 API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Este repositório é público e autossuficiente: setup, execução e testes dependem só dele (e de `finbank-v2-web` e `finbank-v2-infra` para o ambiente completo). As referências a histórias (DEV-xxx) e decisões (PD-xx) vêm da documentação interna da equipe e não são necessárias para usar o projeto.
 
-Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010 e DEV-011): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta). Sem PIX, autenticação, worker ou rotas financeiras.
+Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011 e DEV-012): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos. Sem PIX, autenticação, worker ou rotas financeiras.
 
 ## Runtime e versões (PD-02, resolvida na DEV-001)
 
@@ -61,6 +61,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - Migrações ficam em `prisma/migrations/` e são aplicadas com `npm run prisma:migrate:deploy`.
 - A migração `00000000000000_baseline` é técnica: valida o mecanismo e não cria tabelas.
 - A migração `20261119000000_payment_execution_core` é aditiva: cria as tabelas do núcleo financeiro e, em SQL manual, os `CHECK`s, o índice parcial e os triggers de imutabilidade e equilíbrio.
+- A migração `20261121000000_runtime_role_privileges` cria, se não existir, o papel de grupo `finbank_runtime` (o migrador precisa poder criar papéis: superusuário ou `CREATEROLE`; vale no Compose e nos testes) e concede somente os privilégios da execução (veja Papéis no banco). Toda migração futura que criar tabela deve conceder explicitamente o que a execução precisa: o teste da matriz de privilégios acusa divergência.
 - A migração `20261120000000_payment_reversal_reconciliation` é aditiva: acrescenta o tipo da operação (as existentes ficam `TRANSFER`) e o vínculo do estorno e, em SQL manual, o `CHECK` de coerência do vínculo, o trigger que confere o estorno contra a operação de origem e o trigger que impede alterar a identidade da conta.
 - A suíte de integração aplica as migrações no `global-setup.ts` e verifica em banco descartável: as migrações registradas em ordem, repetir é idempotente, as restrições manuais existem no catálogo do PostgreSQL, `migrate status` informa banco atualizado e `migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` não encontra divergência.
 - Não executar reset nem migração destrutiva em banco persistente sem autorização explícita.
@@ -115,6 +116,16 @@ Ainda não há endpoint, persistência nem variável de ambiente, porque depende
 - **No banco:** `UPDATE`, `DELETE` e `TRUNCATE` em `payment_operation` e `ledger_entry` são rejeitados (SQLSTATE `23001`); um trigger adiado para o commit exige dois lançamentos por operação, com débito e crédito iguais ao valor; `CHECK`s cobrem valor positivo, contas distintas e saldo não negativo de `STANDARD`.
 - Uma operação rejeitada não é registrada: a mesma chave pode ser usada numa nova tentativa.
 - Fora deste módulo: reconciliação (`src/reconciliation/`), rotas, autenticação e PIX.
+
+## Papéis no banco (DEV-012)
+
+- **Dono do esquema:** aplica as migrações e é dono de todos os objetos. Só o serviço de migração o usa.
+- **Usuário de execução:** a API conecta com ele (`DATABASE_URL`). É membro de `finbank_runtime`, não é dono de nenhum objeto e não é superusuário nem cria papéis ou bancos.
+- **Privilégios de `finbank_runtime`:** `USAGE` no schema `public`; `SELECT` em `workspace`; `SELECT` e `INSERT` em `account`, `payment_operation` e `ledger_entry`; `UPDATE` somente da coluna `account.balance_cents` (o que também habilita a trava de linha do PaymentExecution); nada em `_prisma_migrations`. Desligar triggers, DDL, `TRUNCATE`, alterar ou apagar operações e lançamentos, mudar `id`, `workspace_id` ou `kind` de conta, inserir workspace e mudar `session_replication_role` são recusados com SQLSTATE `42501`.
+- **Provisionamento:** `scripts/provision-runtime-role.mjs` (sem dependências) roda depois de `prisma migrate deploy`, conectado como dono: valida `RUNTIME_DB_USER` e `RUNTIME_DB_PASSWORD`, calcula o verificador SCRAM-SHA-256 (a senha em texto não vai ao banco) e cria ou atualiza o usuário de forma idempotente. Um papel que já existe só é reaproveitado se não tiver atributos administrativos, não pertencer a nenhum papel além de `finbank_runtime`, não for dono de objetos e não tiver privilégios diretos neste banco; caso contrário, o provisionamento falha sem alterá-lo. O próprio dono também é recusado. O estágio `migrate` da imagem executa os dois passos em sequência.
+- **Testes:** o `global-setup.ts` provisiona o usuário de execução com o mesmo script e fornece duas URLs. Serviços e bootstrap rodam pelo usuário de execução; o dono só prepara e inspeciona dados. `test/integration/runtime-privileges.spec.ts` verifica atributos, a matriz exata no catálogo e as recusas; `runtime-role-provisioning.spec.ts` verifica idempotência, troca de senha e recusas.
+- **Desenvolvimento local:** o `.env` aponta `DATABASE_URL` para o usuário de execução, e o `prisma.config.ts` lê esse arquivo. Para `npm run prisma:migrate:deploy` e para o provisionamento, informe a URL do dono na linha de comando (exemplos no `.env.example`); com a URL de execução, a migração falha por falta de privilégio (`42501`).
+- Continua possível: o usuário de execução altera `balance_cents` por SQL (necessário ao PaymentExecution); a reconciliação detecta a divergência.
 
 ## Estorno e reconciliação (DEV-011)
 

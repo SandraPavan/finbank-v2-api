@@ -17,7 +17,7 @@ describe('PaymentExecution: isolamento por workspace (dois workspaces, PostgreSQ
   let h: Harness;
 
   beforeAll(async () => {
-    h = await harness(inject('databaseUrl'));
+    h = await harness(inject('databaseUrl'), inject('appDatabaseUrl'));
   });
 
   afterAll(async () => {

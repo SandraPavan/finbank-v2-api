@@ -15,7 +15,7 @@ describe('PaymentExecution: idempotência por operação e workspace (PostgreSQL
   let h: Harness;
 
   beforeAll(async () => {
-    h = await harness(inject('databaseUrl'));
+    h = await harness(inject('databaseUrl'), inject('appDatabaseUrl'));
   });
 
   afterAll(async () => {

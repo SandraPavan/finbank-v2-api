@@ -10,18 +10,33 @@ import { PrismaReconciliationReader } from '../../../src/reconciliation/adapters
 import { ReconciliationService } from '../../../src/reconciliation/application/reconciliation.service.js';
 
 export interface Harness {
+  /** Dono do esquema: prepara e inspeciona dados (workspaces, adulterações e triggers de teste). */
   readonly db: PrismaService;
+  /** Usuário de execução: o papel com que a API conecta. */
+  readonly app: PrismaService;
   readonly service: PaymentExecutionService;
   readonly reconciliation: ReconciliationService;
   close(): Promise<void>;
 }
 
-export async function harness(databaseUrl: string): Promise<Harness> {
+/** Serviços sobre o usuário de execução; preparação e inspeção pelo dono do esquema. */
+export async function harness(databaseUrl: string, appDatabaseUrl: string): Promise<Harness> {
   const db = new PrismaService({ databaseUrl });
+  const app = new PrismaService({ databaseUrl: appDatabaseUrl });
   await db.onModuleInit();
-  const service = new PaymentExecutionService(new PrismaPaymentExecutionStore(db.client));
-  const reconciliation = new ReconciliationService(new PrismaReconciliationReader(db.client));
-  return { db, service, reconciliation, close: () => db.onModuleDestroy() };
+  await app.onModuleInit();
+  const service = new PaymentExecutionService(new PrismaPaymentExecutionStore(app.client));
+  const reconciliation = new ReconciliationService(new PrismaReconciliationReader(app.client));
+  return {
+    db,
+    app,
+    service,
+    reconciliation,
+    close: async () => {
+      await app.onModuleDestroy();
+      await db.onModuleDestroy();
+    },
+  };
 }
 
 /** Workspace novo por teste: os registros são imutáveis e não são apagados entre testes. */

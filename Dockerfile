@@ -20,19 +20,21 @@ COPY prisma ./prisma
 COPY src ./src
 RUN npm run build
 
-# Migração: executa uma vez `prisma migrate deploy` (serviço separado no Compose).
+# Migração: executa uma vez `prisma migrate deploy` e provisiona o usuário de execução
+# (serviço separado no Compose, conectado como dono do esquema).
 FROM deps AS migrate
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openssl \
     && rm -rf /var/lib/apt/lists/*
 COPY prisma.config.ts ./
 COPY prisma ./prisma
+COPY scripts/provision-runtime-role.mjs ./scripts/
 # Baixa o schema engine da plataforma no build (o install script está bloqueado
 # pela política do npm 11), para que a migração não dependa de rede ao rodar.
 RUN npx prisma version \
     && chown -R node:node /app
 USER node
-CMD ["npx", "prisma", "migrate", "deploy"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node scripts/provision-runtime-role.mjs"]
 
 # Runtime: somente dependências de produção e o código compilado.
 FROM base AS runtime
