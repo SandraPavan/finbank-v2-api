@@ -15,7 +15,12 @@ export class DatabaseUnavailableError extends Error {
 }
 
 export function toDatabaseUnavailableError(error: unknown): DatabaseUnavailableError {
-  return new DatabaseUnavailableError(driverAdapterCode(error) ?? causeChainCode(error));
+  return new DatabaseUnavailableError(databaseErrorCode(error));
+}
+
+/** Código técnico do erro (SQLSTATE do PostgreSQL quando disponível), em allowlist e sem a mensagem. */
+export function databaseErrorCode(error: unknown): string | undefined {
+  return driverAdapterCode(error) ?? causeChainCode(error);
 }
 
 function safe(value: unknown): string | undefined {

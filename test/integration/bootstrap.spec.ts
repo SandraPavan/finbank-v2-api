@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { AppModule } from '../../src/app.module.js';
 import { HealthController } from '../../src/health/health.controller.js';
 import { HealthService } from '../../src/health/health.service.js';
+import { PaymentExecutionService } from '../../src/payment-execution/application/payment-execution.service.js';
 import { PrismaService } from '../../src/persistence/prisma.service.js';
 
 describe('composição e bootstrap da aplicação', () => {
@@ -32,6 +33,14 @@ describe('composição e bootstrap da aplicação', () => {
     const prisma = app.get(PrismaService);
     const rows = await prisma.client.$queryRaw<{ ok: number }[]>`SELECT 1::int AS ok`;
     expect(rows).toEqual([{ ok: 1 }]);
+  });
+
+  it('compõe o PaymentExecution sem expor rotas financeiras', async () => {
+    expect(app.get(PaymentExecutionService)).toBeInstanceOf(PaymentExecutionService);
+    for (const path of ['/payments', '/payment-execution', '/accounts', '/ledger']) {
+      const response = await fetch(`${baseUrl}${path}`, { method: 'POST' });
+      expect(response.status, path).toBe(404);
+    }
   });
 
   it('responde GET /health/live via HTTP real', async () => {
