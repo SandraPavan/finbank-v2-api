@@ -19,7 +19,8 @@
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "vitest run --project unit",
     "test:integration": "prisma generate && vitest run --project integration",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run build"
+    "verify": "npm run audit:prod && npm run lint && npm run typecheck && npm test && npm run build",
+    "audit:prod": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "@nestjs/common": "12.4.2",
@@ -43,5 +44,19 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.2",
     "vitest": "4.1.12"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "effect": "3.22.4"
+    },
+    "archiver-utils": {
+      "glob": {
+        ".": "14.0.6",
+        "minimatch": "11.0.8"
+      }
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.8"
+    }
   }
 }

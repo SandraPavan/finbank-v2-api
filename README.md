@@ -35,10 +35,25 @@ npm test                      # testes unitários (sem Docker)
 npm run test:integration      # integração com PostgreSQL real descartável (requer Docker em execução)
 npm run prisma:migrate:deploy # aplica migrações pendentes no banco de DATABASE_URL
 npm run prisma:migrate:status # mostra o estado das migrações no banco de DATABASE_URL
-npm run verify                # lint + typecheck + test + build (sem Docker)
+npm run audit:prod            # npm audit --omit=dev --audit-level=high (requer rede)
+npm run verify                # audit:prod + lint + typecheck + test + build (sem Docker; requer rede)
 ```
 
 **Qualidade:** ESLint com `--max-warnings 0`, typecheck estrito, Vitest e PostgreSQL real nos testes de integração. Os testes cobrem o comportamento correto. Não há meta percentual de cobertura. Os testes de contrato HTTP (PactumJS) dos health checks fazem parte de `test:integration`.
+
+## Dependências e auditoria (DEV-013)
+
+`npm run verify` começa por `audit:prod`, que falha com qualquer aviso alto ou crítico em dependências de produção. O passo consulta o registro do npm: sem rede, o `verify` falha nesse ponto, e um aviso publicado depois pode fazê-lo falhar sem mudança de código.
+
+Overrides em `package.json`, restritos ao pacote que puxa a versão afetada (nunca globais) e com versões publicadas há pelo menos 7 dias quando adotadas:
+
+| Pacote que puxa | Override | Motivo |
+|---|---|---|
+| `@prisma/config` (CLI `prisma` 7.10.1) | `effect` 3.22.4 | o `@prisma/config` fixa `effect` 3.20.0, afetado por aviso alto (até 3.22.0) |
+| `archiver-utils` (`testcontainers` → `archiver`) | `glob` 14.0.6, e `minimatch` 11.0.8 dentro dele | `glob` 10.5.0 e `minimatch` 9.0.9 afetados por avisos moderados |
+| `@typescript-eslint/typescript-estree` (`typescript-eslint` 8.72.2) | `minimatch` 11.0.8 | `minimatch` 10.2.6 afetado por aviso moderado; é a versão usada por `typescript-eslint` 8.73.0 e pelo ESLint |
+
+Compatibilidade verificada com as suítes, `prisma validate`/`migrate deploy` e expansão de padrões do `archiver-utils`. Ao atualizar Prisma, Testcontainers ou `typescript-eslint`, remova o override correspondente se a nova versão já trouxer a dependência corrigida e confirme com `npm audit` e `npm ls effect glob minimatch`. Situação na adoção: `npm audit` sem avisos (produção e desenvolvimento). Não usar `npm audit fix`: as correções sugeridas rebaixam dependências diretas.
 
 ## Configuração por ambiente
 
