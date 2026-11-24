@@ -2,7 +2,7 @@
 
 API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Este repositório é público e autossuficiente: setup, execução e testes dependem só dele (e de `finbank-v2-web` e `finbank-v2-infra` para o ambiente completo). As referências a histórias (DEV-xxx) e decisões (PD-xx) vêm da documentação interna da equipe e não são necessárias para usar o projeto.
 
-Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011 e DEV-012): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos. Sem PIX, autenticação, worker ou rotas financeiras.
+Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011, DEV-012 e DEV-014): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos, e o modelo de identidades e vínculos com workspaces (consulta interna de acesso, sem rota). Sem PIX, autenticação, worker ou rotas financeiras.
 
 ## Runtime e versões (PD-02, resolvida na DEV-001)
 
@@ -69,7 +69,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - `src/persistence/prisma.service.ts`: adaptador dono do ciclo de vida. Cria o cliente com `@prisma/adapter-pg` (timeout de conexão de 5 s). Na inicialização executa `SELECT 1` (o `$connect` do driver adapter é preguiçoso) e falha imediatamente se o banco estiver indisponível; no encerramento desconecta.
 - `src/persistence/database-errors.ts`: toda falha de conexão vira `DatabaseUnavailableError`, com mensagem genérica e somente um código técnico em allowlist (por exemplo `DatabaseNotReachable` ou o código PostgreSQL `28P01`). URL, host, porta, usuário, senha e a causa original não são expostos.
 - Banco indisponível na subida: a aplicação registra a mensagem sanitizada e encerra com código 1.
-- O `schema.prisma` declara somente os modelos do núcleo de execução financeira (`Workspace`, `Account`, `PaymentOperation`, `LedgerEntry` e os enums `AccountKind` e `OperationType`). Restrições que o Prisma não expressa ficam na migração SQL (veja a seção Execução financeira).
+- O `schema.prisma` declara somente os modelos do núcleo de execução financeira (`Workspace`, `Account`, `PaymentOperation`, `LedgerEntry` e os enums `AccountKind` e `OperationType`) e de identidade (`UserIdentity`, `WorkspaceMembership` e os enums de papel e estado). Restrições que o Prisma não expressa ficam na migração SQL (veja a seção Execução financeira).
 
 ## Migrações
 
@@ -78,6 +78,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - A migração `20261119000000_payment_execution_core` é aditiva: cria as tabelas do núcleo financeiro e, em SQL manual, os `CHECK`s, o índice parcial e os triggers de imutabilidade e equilíbrio.
 - A migração `20261121000000_runtime_role_privileges` cria, se não existir, o papel de grupo `finbank_runtime` (o migrador precisa poder criar papéis: superusuário ou `CREATEROLE`; vale no Compose e nos testes) e concede somente os privilégios da execução (veja Papéis no banco). Toda migração futura que criar tabela deve conceder explicitamente o que a execução precisa: o teste da matriz de privilégios acusa divergência.
 - A migração `20261120000000_payment_reversal_reconciliation` é aditiva: acrescenta o tipo da operação (as existentes ficam `TRANSFER`) e o vínculo do estorno e, em SQL manual, o `CHECK` de coerência do vínculo, o trigger que confere o estorno contra a operação de origem e o trigger que impede alterar a identidade da conta.
+- A migração `20261123000000_identity_membership` é aditiva: cria identidades e vínculos, sem dados iniciais, e concede só leitura à execução.
 - A suíte de integração aplica as migrações no `global-setup.ts` e verifica em banco descartável: as migrações registradas em ordem, repetir é idempotente, as restrições manuais existem no catálogo do PostgreSQL, `migrate status` informa banco atualizado e `migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` não encontra divergência.
 - Não executar reset nem migração destrutiva em banco persistente sem autorização explícita.
 
@@ -109,6 +110,16 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - **Banco indisponível na subida:** continua sendo fail-fast, com código de saída 1 (DEV-003).
 - **Healthcheck de container:** `dist/healthcheck.js` chama `http://127.0.0.1:$PORT/health/ready` e sai com 0 só em HTTP 200. Usa o mesmo parser de `PORT` da aplicação e tem timeout de 2,5 s. O Compose do `finbank-v2-infra` usa esse script.
 
+## Identidade e vínculos (DEV-014)
+
+`src/identity/` responde se uma identidade acessa um workspace e com qual papel (`CUSTOMER` ou `FACILITATOR`), por meio de `WorkspaceAccessService.resolve(identityId, workspaceId)`:
+
+- **Nega por padrão:** só há acesso com identidade `ACTIVE` e vínculo `ACTIVE` com aquele workspace. Qualquer outro caso produz o mesmo `ACCESS_DENIED`, sem revelar o que existe.
+- **Erros:** `INVALID_INPUT` (identificador que não é UUID em minúsculas; o banco não é consultado) e `ACCESS_CHECK_FAILED` (falha do banco, sem a causa original; nunca concede acesso).
+- **Sem cache:** revogar um vínculo ou desativar uma identidade vale na consulta seguinte.
+- **Não é autenticação:** quem chamar precisa fornecer uma identidade já autenticada. Ainda não há credencial, sessão, rota nem caso de uso que crie identidades.
+- **Banco:** um vínculo por par (workspace, identidade); papel e estados sem valor padrão; a execução só lê as duas tabelas.
+
 ## Modos educacionais (DEV-006)
 
 `src/education/` é domínio puro: não importa NestJS, HTTP nem Prisma. Os identificadores de defeito são opacos (`d-` + 16 hexadecimais) e não descrevem o defeito. Presets de laboratório são indexados pelo SHA-256 de um código de laboratório: o código nunca fica no repositório, e o hash não é autorização.
@@ -136,7 +147,7 @@ Ainda não há endpoint, persistência nem variável de ambiente, porque depende
 
 - **Dono do esquema:** aplica as migrações e é dono de todos os objetos. Só o serviço de migração o usa.
 - **Usuário de execução:** a API conecta com ele (`DATABASE_URL`). É membro de `finbank_runtime`, não é dono de nenhum objeto e não é superusuário nem cria papéis ou bancos.
-- **Privilégios de `finbank_runtime`:** `USAGE` no schema `public`; `SELECT` em `workspace`; `SELECT` e `INSERT` em `account`, `payment_operation` e `ledger_entry`; `UPDATE` somente da coluna `account.balance_cents` (o que também habilita a trava de linha do PaymentExecution); nada em `_prisma_migrations`. Desligar triggers, DDL, `TRUNCATE`, alterar ou apagar operações e lançamentos, mudar `id`, `workspace_id` ou `kind` de conta, inserir workspace e mudar `session_replication_role` são recusados com SQLSTATE `42501`.
+- **Privilégios de `finbank_runtime`:** `USAGE` no schema `public`; `SELECT` em `workspace`, `user_identity` e `workspace_membership`; `SELECT` e `INSERT` em `account`, `payment_operation` e `ledger_entry`; `UPDATE` somente da coluna `account.balance_cents` (o que também habilita a trava de linha do PaymentExecution); nada em `_prisma_migrations`. Desligar triggers, DDL, `TRUNCATE`, alterar ou apagar operações e lançamentos, mudar `id`, `workspace_id` ou `kind` de conta, inserir workspace, escrever identidades ou vínculos e mudar `session_replication_role` são recusados com SQLSTATE `42501`.
 - **Provisionamento:** `scripts/provision-runtime-role.mjs` (sem dependências) roda depois de `prisma migrate deploy`, conectado como dono: valida `RUNTIME_DB_USER` e `RUNTIME_DB_PASSWORD`, calcula o verificador SCRAM-SHA-256 (a senha em texto não vai ao banco) e cria ou atualiza o usuário de forma idempotente. Um papel que já existe só é reaproveitado se não tiver atributos administrativos, não pertencer a nenhum papel além de `finbank_runtime`, não for dono de objetos e não tiver privilégios diretos neste banco; caso contrário, o provisionamento falha sem alterá-lo. O próprio dono também é recusado. O estágio `migrate` da imagem executa os dois passos em sequência.
 - **Testes:** o `global-setup.ts` provisiona o usuário de execução com o mesmo script e fornece duas URLs. Serviços e bootstrap rodam pelo usuário de execução; o dono só prepara e inspeciona dados. `test/integration/runtime-privileges.spec.ts` verifica atributos, a matriz exata no catálogo e as recusas; `runtime-role-provisioning.spec.ts` verifica idempotência, troca de senha e recusas.
 - **Desenvolvimento local:** o `.env` aponta `DATABASE_URL` para o usuário de execução, e o `prisma.config.ts` lê esse arquivo. Para `npm run prisma:migrate:deploy` e para o provisionamento, informe a URL do dono na linha de comando (exemplos no `.env.example`); com a URL de execução, a migração falha por falta de privilégio (`42501`).

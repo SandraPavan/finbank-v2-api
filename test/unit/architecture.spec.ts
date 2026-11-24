@@ -101,3 +101,35 @@ describe('arquitetura da reconciliação', () => {
     expect(module.some((f) => /@Controller\(|controllers\s*:/.test(f.text))).toBe(false);
   });
 });
+
+describe('arquitetura da identidade', () => {
+  const module = files.filter((f) => f.path.startsWith('identity/'));
+
+  it('domínio e aplicação não importam NestJS, Prisma, HTTP nem infraestrutura', () => {
+    const inner = module.filter((f) => /^identity\/(domain|application)\//.test(f.path));
+    expect(inner.length).toBeGreaterThan(0);
+    for (const file of inner) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|generated|persistence|adapters|express/);
+      }
+      if (file.path.startsWith('identity/domain/')) {
+        expect(imports(file.text).join(' '), file.path).not.toMatch(/application/);
+      }
+    }
+  });
+
+  it('não depende dos módulos financeiros nem dos modos educacionais', () => {
+    for (const file of module) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/payment-execution|reconciliation|education/);
+      }
+    }
+  });
+
+  it('só lê e não declara controller', () => {
+    const adapter = module.find((f) => f.path === 'identity/adapters/prisma-workspace-access.reader.ts');
+    expect(adapter).toBeDefined();
+    expect(adapter?.text).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b|\.(create|update|upsert|delete)/);
+    expect(module.some((f) => /@Controller\(|controllers\s*:/.test(f.text))).toBe(false);
+  });
+});

@@ -33,17 +33,22 @@ describe('migrações Prisma em banco descartável', () => {
     await db?.onModuleDestroy();
   });
 
-  it('o schema declara somente os modelos do núcleo financeiro', () => {
+  it('o schema declara somente os modelos do núcleo financeiro e de identidade', () => {
     const schema = readFileSync(resolve('prisma/schema.prisma'), 'utf8');
     const declared = [...schema.matchAll(/^\s*(model|enum|view)\s+(\w+)/gm)].map((m) => `${m[1]} ${m[2]}`);
     expect(declared.sort()).toEqual(
       [
         'enum AccountKind',
+        'enum IdentityStatus',
+        'enum MembershipRole',
+        'enum MembershipStatus',
         'enum OperationType',
         'model Account',
         'model LedgerEntry',
         'model PaymentOperation',
+        'model UserIdentity',
         'model Workspace',
+        'model WorkspaceMembership',
       ].sort(),
     );
   });
@@ -56,6 +61,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261119000000_payment_execution_core', finished: true },
       { migration_name: '20261120000000_payment_reversal_reconciliation', finished: true },
       { migration_name: '20261121000000_runtime_role_privileges', finished: true },
+      { migration_name: '20261123000000_identity_membership', finished: true },
     ]);
   });
 
@@ -64,7 +70,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(4);
+    expect(rows[0]?.total).toBe(5);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -80,7 +86,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(diff.code, diff.output).toBe(0);
   });
 
-  it('as tabelas criadas são o controle do Prisma e as do núcleo financeiro', async () => {
+  it('as tabelas criadas são o controle do Prisma e as do núcleo financeiro e de identidade', async () => {
     const tables = await db.client.$queryRaw<{ table_name: string }[]>`
       SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`;
     expect(tables.map((t) => t.table_name)).toEqual([
@@ -88,7 +94,9 @@ describe('migrações Prisma em banco descartável', () => {
       'account',
       'ledger_entry',
       'payment_operation',
+      'user_identity',
       'workspace',
+      'workspace_membership',
     ]);
   });
 

@@ -64,7 +64,9 @@ describe('papel de execução no PostgreSQL', () => {
       'ledger_entry:SELECT',
       'payment_operation:INSERT',
       'payment_operation:SELECT',
+      'user_identity:SELECT',
       'workspace:SELECT',
+      'workspace_membership:SELECT',
     ]);
 
     const columns = await h.db.client.$queryRaw<{ grant: string }[]>`
@@ -136,6 +138,14 @@ describe('papel de execução no PostgreSQL', () => {
       ['desligar triggers da sessão', () => raw('SET session_replication_role = replica')],
       ['ler o controle de migrações', () => () => h.app.client.$queryRawUnsafe('SELECT * FROM "_prisma_migrations"')],
       ['inserir workspace', () => raw('INSERT INTO "workspace" DEFAULT VALUES')],
+      ['inserir identidade', () => raw(`INSERT INTO "user_identity" ("status") VALUES ('ACTIVE')`)],
+      ['alterar identidade', () => raw(`UPDATE "user_identity" SET "status" = 'ACTIVE'`)],
+      ['apagar identidade', () => raw('DELETE FROM "user_identity"')],
+      ['truncar identidades', () => raw('TRUNCATE "user_identity" CASCADE')],
+      ['inserir vínculo', (c) => () => h.app.client.$executeRaw`INSERT INTO "workspace_membership" ("workspace_id", "identity_id", "role", "status") VALUES (${c.workspaceId}::uuid, gen_random_uuid(), 'FACILITATOR', 'ACTIVE')`],
+      ['alterar vínculo', () => raw(`UPDATE "workspace_membership" SET "role" = 'FACILITATOR'`)],
+      ['apagar vínculo', () => raw('DELETE FROM "workspace_membership"')],
+      ['truncar vínculos', () => raw('TRUNCATE "workspace_membership"')],
       ['alterar lançamento', (c) => () => h.app.client.$executeRaw`UPDATE "ledger_entry" SET "amount_cents" = "amount_cents" WHERE "operation_id" = ${c.operationId}::uuid`],
       ['apagar lançamento', (c) => () => h.app.client.$executeRaw`DELETE FROM "ledger_entry" WHERE "operation_id" = ${c.operationId}::uuid`],
       ['alterar operação', (c) => () => h.app.client.$executeRaw`UPDATE "payment_operation" SET "amount_cents" = 1 WHERE "id" = ${c.operationId}::uuid`],

@@ -1,5 +1,6 @@
 // Persistência da API. DEV-003: fundação sem modelos.
 // DEV-010: núcleo de execução financeira (contas técnicas, operações e ledger).
+// DEV-014: identidades e vínculos com workspaces.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -28,13 +29,35 @@ enum OperationType {
   @@map("operation_type")
 }
 
+enum IdentityStatus {
+  ACTIVE
+  DISABLED
+
+  @@map("identity_status")
+}
+
+enum MembershipRole {
+  CUSTOMER
+  FACILITATOR
+
+  @@map("membership_role")
+}
+
+enum MembershipStatus {
+  ACTIVE
+  REVOKED
+
+  @@map("membership_status")
+}
+
 /// Escopo de dados. Não representa identidade nem autorização.
 model Workspace {
-  id         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
-  accounts   Account[]
-  operations PaymentOperation[]
-  entries    LedgerEntry[]
+  id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  accounts    Account[]
+  operations  PaymentOperation[]
+  entries     LedgerEntry[]
+  memberships WorkspaceMembership[]
 
   @@map("workspace")
 }
@@ -96,4 +119,29 @@ model LedgerEntry {
   @@unique([operationId, accountId])
   @@index([workspaceId, accountId])
   @@map("ledger_entry")
+}
+
+/// Identidade que pode acessar workspaces. Sem dados pessoais nem credenciais.
+model UserIdentity {
+  id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  status      IdentityStatus
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  memberships WorkspaceMembership[]
+
+  @@map("user_identity")
+}
+
+/// Vínculo com papel, único por workspace e identidade. Papel e estado sempre explícitos.
+model WorkspaceMembership {
+  workspaceId String           @map("workspace_id") @db.Uuid
+  identityId  String           @map("identity_id") @db.Uuid
+  role        MembershipRole
+  status      MembershipStatus
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  identity    UserIdentity     @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([workspaceId, identityId])
+  @@index([identityId])
+  @@map("workspace_membership")
 }

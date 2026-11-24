@@ -1,4 +1,4 @@
-// Migrações posteriores ao núcleo (estorno e papel de execução) aplicadas sobre um banco com dados anteriores.
+// Migrações posteriores ao núcleo (estorno, papel de execução e identidade) aplicadas sobre um banco com dados anteriores.
 import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -13,7 +13,11 @@ const run = promisify(execFile);
 const prismaBin = resolve('node_modules/.bin/prisma');
 const UPGRADE_DB = 'finbank_v2_upgrade_check';
 const BEFORE = ['00000000000000_baseline', '20261119000000_payment_execution_core'];
-const AFTER = ['20261120000000_payment_reversal_reconciliation', '20261121000000_runtime_role_privileges'];
+const AFTER = [
+  '20261120000000_payment_reversal_reconciliation',
+  '20261121000000_runtime_role_privileges',
+  '20261123000000_identity_membership',
+];
 
 const WS = '11111111-1111-4111-8111-111111111111';
 const CONTRA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -82,6 +86,17 @@ describe('migração aditiva sobre dados existentes', () => {
     const rows = await db.$queryRaw<{ type: string; linked: boolean }[]>`
       SELECT "type"::text AS "type", "reverses_operation_id" IS NOT NULL AS "linked" FROM "payment_operation"`;
     expect(rows).toEqual([{ type: 'TRANSFER', linked: false }]);
+
+    // Dados anteriores intactos e nenhuma identidade ou vínculo criado pela migração.
+    const before = await db.account.findMany({ select: { id: true, balanceCents: true }, orderBy: { balanceCents: 'asc' } });
+    expect(before).toEqual([
+      { id: CONTRA, balanceCents: -500n },
+      { id: ACCOUNT, balanceCents: 500n },
+    ]);
+    const entries = await db.ledgerEntry.findMany({ select: { amountCents: true }, orderBy: { amountCents: 'asc' } });
+    expect(entries.map((e) => e.amountCents)).toEqual([-500n, 500n]);
+    expect(await db.userIdentity.count()).toBe(0);
+    expect(await db.workspaceMembership.count()).toBe(0);
 
     // Estorno e reconciliação pelo usuário de execução, com as concessões da migração nova.
     runtime = new PrismaService({ databaseUrl: appUpgradeUrl });
