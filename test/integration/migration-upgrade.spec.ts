@@ -19,6 +19,7 @@ const AFTER = [
   '20261121000000_runtime_role_privileges',
   '20261123000000_identity_membership',
   '20261124000000_identity_profile',
+  '20261125000000_password_session',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';
@@ -102,6 +103,8 @@ describe('migração aditiva sobre dados existentes', () => {
     expect(entries.map((e) => e.amountCents)).toEqual([-500n, 500n]);
     expect(await db.userIdentity.count()).toBe(0);
     expect(await db.workspaceMembership.count()).toBe(0);
+    expect(await db.passwordCredential.count()).toBe(0);
+    expect(await db.userSession.count()).toBe(0);
 
     // Estorno e reconciliação pelo usuário de execução, com as concessões da migração nova.
     runtime = new PrismaService({ databaseUrl: appUpgradeUrl });
@@ -125,7 +128,7 @@ describe('migração aditiva sobre dados existentes', () => {
     await main.client.$executeRawUnsafe(`CREATE DATABASE "${BLOCKED_DB}"`);
     const url = new URL(mainUrl);
     url.pathname = `/${BLOCKED_DB}`;
-    for (const migration of [...BEFORE, ...AFTER.slice(0, -1)]) {
+    for (const migration of [...BEFORE, ...AFTER.slice(0, AFTER.indexOf('20261124000000_identity_profile'))]) {
       await prisma(url.toString(), 'db', 'execute', '--file', `prisma/migrations/${migration}/migration.sql`);
     }
     blocked = new PrismaService({ databaseUrl: url.toString() });

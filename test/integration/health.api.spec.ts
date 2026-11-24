@@ -78,7 +78,7 @@ describe('health — contrato HTTP com PostgreSQL real (PactumJS)', () => {
     await admin.onModuleInit();
 
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule.forRoot({ port: 0, databaseUrl: container.getConnectionUri() })],
+      imports: [AppModule.forRoot({ port: 0, databaseUrl: container.getConnectionUri(), session: { idleMinutes: 30, absoluteMinutes: 480 } })],
     }).compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');

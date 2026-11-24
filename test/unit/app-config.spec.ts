@@ -50,3 +50,25 @@ describe('loadAppConfig — DATABASE_URL', () => {
     }
   });
 });
+
+describe('loadAppConfig — sessão', () => {
+  const load = (env: Record<string, string>) => loadAppConfig({ DATABASE_URL: VALID_DB, ...env }).session;
+
+  it('usa 30 minutos de inatividade e 8 horas no total por padrão', () => {
+    expect(load({})).toEqual({ idleMinutes: 30, absoluteMinutes: 480 });
+  });
+
+  it('aceita limites e inatividade igual à duração absoluta', () => {
+    expect(load({ SESSION_IDLE_MINUTES: '1', SESSION_ABSOLUTE_MINUTES: '1440' })).toEqual({ idleMinutes: 1, absoluteMinutes: 1440 });
+    expect(load({ SESSION_IDLE_MINUTES: '60', SESSION_ABSOLUTE_MINUTES: '60' })).toEqual({ idleMinutes: 60, absoluteMinutes: 60 });
+  });
+
+  it.each(['', ' ', '0', '-1', '1.5', '1441', '99999', '30m', '1e2', ' 30'])('rejeita %j', (value) => {
+    expect(() => load({ SESSION_IDLE_MINUTES: value })).toThrow(/SESSION_IDLE_MINUTES/);
+    expect(() => load({ SESSION_ABSOLUTE_MINUTES: value })).toThrow(/SESSION_ABSOLUTE_MINUTES/);
+  });
+
+  it('rejeita inatividade maior que a duração absoluta', () => {
+    expect(() => load({ SESSION_IDLE_MINUTES: '61', SESSION_ABSOLUTE_MINUTES: '60' })).toThrow(/menor ou igual/);
+  });
+});

@@ -1,4 +1,5 @@
 import { type DynamicModule, Module } from '@nestjs/common';
+import { AuthenticationModule } from './authentication/authentication.module.js';
 import type { AppConfig } from './config/app-config.js';
 import { HealthModule } from './health/health.module.js';
 import { IdentityModule } from './identity/identity.module.js';
@@ -12,6 +13,7 @@ export class AppModule {
     return {
       module: AppModule,
       imports: [
+        AuthenticationModule.forRoot(config.session),
         HealthModule,
         IdentityModule,
         PaymentExecutionModule,

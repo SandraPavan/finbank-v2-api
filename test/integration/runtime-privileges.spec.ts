@@ -62,9 +62,12 @@ describe('papel de execução no PostgreSQL', () => {
       'account:SELECT',
       'ledger_entry:INSERT',
       'ledger_entry:SELECT',
+      'password_credential:SELECT',
       'payment_operation:INSERT',
       'payment_operation:SELECT',
       'user_identity:SELECT',
+      'user_session:INSERT',
+      'user_session:SELECT',
       'workspace:SELECT',
       'workspace_membership:SELECT',
     ]);
@@ -77,7 +80,14 @@ describe('papel de execução no PostgreSQL', () => {
         JOIN pg_roles r ON r.oid = a.grantee
        WHERE c.relnamespace = 'public'::regnamespace AND r.rolname = ${GROUP}
        ORDER BY 1`;
-    expect(columns.map((c) => c.grant)).toEqual(['account.balance_cents:UPDATE']);
+    expect(columns.map((c) => c.grant)).toEqual([
+      'account.balance_cents:UPDATE',
+      'password_credential.hash:UPDATE',
+      'password_credential.updated_at:UPDATE',
+      'user_session.idle_expires_at:UPDATE',
+      'user_session.last_activity_at:UPDATE',
+      'user_session.revoked_at:UPDATE',
+    ]);
 
     const [publicGrants] = await h.db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS "total"
@@ -147,6 +157,15 @@ describe('papel de execução no PostgreSQL', () => {
       ['alterar vínculo', () => raw(`UPDATE "workspace_membership" SET "role" = 'FACILITATOR'`)],
       ['apagar vínculo', () => raw('DELETE FROM "workspace_membership"')],
       ['truncar vínculos', () => raw('TRUNCATE "workspace_membership"')],
+      ['criar credencial', () => raw(`INSERT INTO "password_credential" ("identity_id", "hash") VALUES (gen_random_uuid(), 'x')`)],
+      ['apagar credencial', () => raw('DELETE FROM "password_credential"')],
+      ['mover credencial', () => raw('UPDATE "password_credential" SET "identity_id" = gen_random_uuid()')],
+      ['apagar sessão', () => raw('DELETE FROM "user_session"')],
+      ['truncar sessões', () => raw('TRUNCATE "user_session"')],
+      ['estender o prazo absoluto', () => raw(`UPDATE "user_session" SET "absolute_expires_at" = now() + interval '1 day'`)],
+      ['mudar a identidade da sessão', () => raw('UPDATE "user_session" SET "identity_id" = gen_random_uuid()')],
+      ['mudar o segredo da sessão', () => raw(`UPDATE "user_session" SET "token_hash" = repeat('a', 64)`)],
+      ['desligar o trigger da sessão', () => raw('ALTER TABLE "user_session" DISABLE TRIGGER ALL')],
       ['alterar lançamento', (c) => () => h.app.client.$executeRaw`UPDATE "ledger_entry" SET "amount_cents" = "amount_cents" WHERE "operation_id" = ${c.operationId}::uuid`],
       ['apagar lançamento', (c) => () => h.app.client.$executeRaw`DELETE FROM "ledger_entry" WHERE "operation_id" = ${c.operationId}::uuid`],
       ['alterar operação', (c) => () => h.app.client.$executeRaw`UPDATE "payment_operation" SET "amount_cents" = 1 WHERE "id" = ${c.operationId}::uuid`],

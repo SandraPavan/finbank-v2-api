@@ -133,3 +133,33 @@ describe('arquitetura da identidade', () => {
     expect(module.some((f) => /@Controller\(|controllers\s*:/.test(f.text))).toBe(false);
   });
 });
+
+describe('arquitetura da autenticação', () => {
+  const module = files.filter((f) => f.path.startsWith('authentication/'));
+
+  it('domínio e aplicação não importam NestJS, Prisma, HTTP, criptografia nem infraestrutura', () => {
+    const inner = module.filter((f) => /^authentication\/(domain|application)\//.test(f.path));
+    expect(inner.length).toBeGreaterThan(0);
+    for (const file of inner) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|^node:|generated|persistence|adapters|express/);
+      }
+      if (file.path.startsWith('authentication/domain/')) {
+        expect(imports(file.text).join(' '), file.path).not.toMatch(/application/);
+      }
+    }
+  });
+
+  it('não depende dos módulos financeiros nem dos modos educacionais, e não registra logs', () => {
+    for (const file of module) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/payment-execution|reconciliation|education/);
+      }
+      expect(file.text, file.path).not.toMatch(/console\.|Logger/);
+    }
+  });
+
+  it('não declara controller', () => {
+    expect(module.some((f) => /@Controller\(|controllers\s*:/.test(f.text))).toBe(false);
+  });
+});

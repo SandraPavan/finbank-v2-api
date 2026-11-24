@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { AppModule } from '../../src/app.module.js';
 import { TEST_RUNTIME_USER } from './global-setup.js';
+import { AuthenticationService } from '../../src/authentication/application/authentication.service.js';
 import { HealthController } from '../../src/health/health.controller.js';
 import { HealthService } from '../../src/health/health.service.js';
 import { WorkspaceAccessService } from '../../src/identity/application/workspace-access.service.js';
@@ -16,7 +17,7 @@ describe('composição e bootstrap da aplicação', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule.forRoot({ port: 0, databaseUrl: inject('appDatabaseUrl') })],
+      imports: [AppModule.forRoot({ port: 0, databaseUrl: inject('appDatabaseUrl'), session: { idleMinutes: 30, absoluteMinutes: 480 } })],
     }).compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');
@@ -53,11 +54,17 @@ describe('composição e bootstrap da aplicação', () => {
     }
   });
 
+  it('compõe a autenticação com a credencial fictícia pronta', async () => {
+    const auth = app.get(AuthenticationService);
+    const input = { email: 'ninguem@example.test', password: 'senha qualquer longa' };
+    await expect(auth.loginFacilitator(input)).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
+  });
+
   it('compõe a consulta de acesso sem expor rotas de identidade', async () => {
     const access = app.get(WorkspaceAccessService);
     const unknown = '00000000-0000-4000-8000-000000000000';
     await expect(access.resolve(unknown, unknown)).rejects.toMatchObject({ code: 'ACCESS_DENIED' });
-    for (const path of ['/identity', '/identities', '/workspaces', '/memberships', '/auth', '/login']) {
+    for (const path of ['/identity', '/identities', '/workspaces', '/memberships', '/auth', '/login', '/logout', '/session', '/api/v1/auth/customer/login', '/api/v1/auth/me']) {
       for (const method of ['GET', 'POST']) {
         expect((await fetch(`${baseUrl}${path}`, { method })).status, `${method} ${path}`).toBe(404);
       }

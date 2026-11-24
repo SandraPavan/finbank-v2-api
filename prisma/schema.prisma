@@ -1,6 +1,7 @@
 // Persistência da API. DEV-003: fundação sem modelos.
 // DEV-010: núcleo de execução financeira (contas técnicas, operações e ledger).
 // DEV-014 e DEV-015: identidades, vínculos com workspaces, e-mail de login e alias.
+// DEV-016: credencial permanente e sessões.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -135,6 +136,9 @@ model UserIdentity {
   createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   memberships WorkspaceMembership[]
 
+  credential PasswordCredential?
+  sessions   UserSession[]
+
   @@unique([id, profile])
   @@map("user_identity")
 }
@@ -152,4 +156,30 @@ model WorkspaceMembership {
   @@id([workspaceId, identityId])
   @@index([identityId])
   @@map("workspace_membership")
+}
+
+/// Credencial permanente (Argon2id). Criada fora da execução, que só a atualiza.
+model PasswordCredential {
+  identityId String       @id @map("identity_id") @db.Uuid
+  hash       String       @db.VarChar(160)
+  updatedAt  DateTime     @default(now()) @map("updated_at") @db.Timestamptz(3)
+  identity   UserIdentity @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("password_credential")
+}
+
+/// Sessão. Guarda só o SHA-256 do segredo; estado derivado dos prazos e do encerramento.
+model UserSession {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identityId        String       @map("identity_id") @db.Uuid
+  tokenHash         String       @unique @map("token_hash") @db.Char(64)
+  createdAt         DateTime     @map("created_at") @db.Timestamptz(3)
+  lastActivityAt    DateTime     @map("last_activity_at") @db.Timestamptz(3)
+  idleExpiresAt     DateTime     @map("idle_expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime     @map("absolute_expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime?    @map("revoked_at") @db.Timestamptz(3)
+  identity          UserIdentity @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([identityId])
+  @@map("user_session")
 }

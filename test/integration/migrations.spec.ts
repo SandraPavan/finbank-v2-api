@@ -33,7 +33,7 @@ describe('migrações Prisma em banco descartável', () => {
     await db?.onModuleDestroy();
   });
 
-  it('o schema declara somente os modelos do núcleo financeiro e de identidade', () => {
+  it('o schema declara somente os modelos do núcleo financeiro, de identidade e de autenticação', () => {
     const schema = readFileSync(resolve('prisma/schema.prisma'), 'utf8');
     const declared = [...schema.matchAll(/^\s*(model|enum|view)\s+(\w+)/gm)].map((m) => `${m[1]} ${m[2]}`);
     expect(declared.sort()).toEqual(
@@ -45,8 +45,10 @@ describe('migrações Prisma em banco descartável', () => {
         'enum OperationType',
         'model Account',
         'model LedgerEntry',
+        'model PasswordCredential',
         'model PaymentOperation',
         'model UserIdentity',
+        'model UserSession',
         'model Workspace',
         'model WorkspaceMembership',
       ].sort(),
@@ -63,6 +65,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261121000000_runtime_role_privileges', finished: true },
       { migration_name: '20261123000000_identity_membership', finished: true },
       { migration_name: '20261124000000_identity_profile', finished: true },
+      { migration_name: '20261125000000_password_session', finished: true },
     ]);
   });
 
@@ -71,7 +74,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(6);
+    expect(rows[0]?.total).toBe(7);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -87,15 +90,17 @@ describe('migrações Prisma em banco descartável', () => {
     expect(diff.code, diff.output).toBe(0);
   });
 
-  it('as tabelas criadas são o controle do Prisma e as do núcleo financeiro e de identidade', async () => {
+  it('as tabelas criadas são o controle do Prisma e as do núcleo financeiro, de identidade e de autenticação', async () => {
     const tables = await db.client.$queryRaw<{ table_name: string }[]>`
       SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`;
     expect(tables.map((t) => t.table_name)).toEqual([
       '_prisma_migrations',
       'account',
       'ledger_entry',
+      'password_credential',
       'payment_operation',
       'user_identity',
+      'user_session',
       'workspace',
       'workspace_membership',
     ]);
@@ -108,6 +113,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(checks.map((c) => c.conname)).toEqual([
       'account_standard_non_negative',
       'ledger_entry_amount_nonzero',
+      'password_credential_hash_format',
       'payment_operation_amount_positive',
       'payment_operation_distinct_accounts',
       'payment_operation_fingerprint_format',
@@ -115,6 +121,8 @@ describe('migrações Prisma em banco descartável', () => {
       'payment_operation_reversal_link',
       'user_identity_email_normalized',
       'user_identity_profile_workspace',
+      'user_session_expiry_order',
+      'user_session_token_hash_format',
       'workspace_alias_format',
       'workspace_membership_facilitator_only',
     ]);
@@ -130,7 +138,9 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'payment_operation_immutable', deferred: false },
       { tgname: 'payment_operation_no_truncate', deferred: false },
       { tgname: 'payment_operation_reversal_matches', deferred: false },
+      { tgname: 'user_identity_disable_revokes_sessions', deferred: false },
       { tgname: 'user_identity_immutable', deferred: false },
+      { tgname: 'user_session_terminal', deferred: false },
       { tgname: 'workspace_id_immutable', deferred: false },
     ]);
 
