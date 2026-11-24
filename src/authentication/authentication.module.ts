@@ -54,7 +54,7 @@ export class AuthenticationModule {
           inject: [AuthenticationService],
         },
       ],
-      exports: [AuthenticationService],
+      exports: [AuthenticationService, AuthContext],
     };
   }
 }

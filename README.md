@@ -2,7 +2,7 @@
 
 API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Este repositório é público e autossuficiente: setup, execução e testes dependem só dele (e de `finbank-v2-web` e `finbank-v2-infra` para o ambiente completo). As referências a histórias (DEV-xxx) e decisões (PD-xx) vêm da documentação interna da equipe e não são necessárias para usar o projeto.
 
-Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011, DEV-012, DEV-014, DEV-015, DEV-016 e DEV-017): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos, e o modelo de identidades e vínculos com workspaces (consulta interna de acesso, sem rota) e autenticação por HTTP em `/api/v1/auth`. Sem PIX, worker ou rotas financeiras.
+Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011, DEV-012, DEV-014, DEV-015, DEV-016, DEV-017 e DEV-018): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos, e o modelo de identidades e vínculos com workspaces (consulta interna de acesso, sem rota) e autenticação por HTTP em `/api/v1/auth` e autorização por operação com consulta de workspaces do facilitador. Sem PIX, worker ou rotas financeiras.
 
 ## Runtime e versões (PD-02, resolvida na DEV-001)
 
@@ -164,6 +164,20 @@ curl -b jar $BASE/me                                # use o novo csrfToken do lo
 - **Entrada:** JSON UTF-8 sem compressão, até 10 KiB, com exatamente os campos do contrato.
 
 Ainda não há caso de uso que crie identidades: um ambiente novo não tem quem possa entrar.
+
+## Autorização por operação (DEV-018)
+
+`src/access/` tem a guarda de todas as rotas. Cada rota declara a política com um decorador de `src/http/access-policy.ts`; **rota sem política é negada (403)** e acusada por teste.
+
+| Rota (`/api/v1/facilitator`) | Uso |
+|---|---|
+| `GET /workspaces?limit=20&offset=0` | Workspaces com vínculo ativo do facilitador: `{ items, nextOffset }`; `limit` de 1 a 100 |
+| `GET /workspaces/{workspaceId}` | Um workspace com vínculo ativo |
+
+- **Ordem:** política, transporte e cookies, sessão (401), perfil (403), CSRF em métodos que alteram estado (403), workspace (404).
+- **404:** workspace inexistente, sem vínculo, com vínculo revogado ou identificador malformado recebem a mesma resposta. Falha do banco é 503 e nunca concede acesso.
+- **Sem cache:** vínculo, identidade e sessão são conferidos a cada requisição. O workspace vem só do caminho; cabeçalho, query e corpo não influenciam.
+- **Rota nova com workspace:** use `{workspaceId}`, `@FacilitatorWorkspaceAccess()` e `@CurrentWorkspace()` (nunca `@Param`), e inclua-a na matriz de `test/integration/access/`. A guarda não cobre revogação concorrente: escritas devem reconferir o acesso na própria transação.
 
 ## Senha e sessões (DEV-016)
 

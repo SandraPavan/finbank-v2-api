@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Req, Res, UseFilters } from '@nestjs/common';
+import { AuthenticationAccess } from '../../http/access-policy.js';
 import { parseNoBody, parseTextFields } from '../../http/body.js';
 import type { HttpRequest, HttpResponse } from '../../http/http-types.js';
 import { ProblemError } from '../../http/problem.js';
@@ -32,6 +33,7 @@ function view(session: ActiveSession): SessionView {
 }
 
 @Controller('api/v1/auth')
+@AuthenticationAccess()
 @UseFilters(AuthenticationProblemFilter)
 export class AuthenticationController {
   constructor(

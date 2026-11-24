@@ -127,9 +127,11 @@ describe('arquitetura da identidade', () => {
   });
 
   it('só lê e não declara controller', () => {
-    const adapter = module.find((f) => f.path === 'identity/adapters/prisma-workspace-access.reader.ts');
-    expect(adapter).toBeDefined();
-    expect(adapter?.text).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b|\.(create|update|upsert|delete)/);
+    const adapters = module.filter((f) => f.path.startsWith('identity/adapters/'));
+    expect(adapters).toHaveLength(2);
+    for (const adapter of adapters) {
+      expect(adapter.text, adapter.path).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b|\.(create|update|upsert|delete)/);
+    }
     expect(module.some((f) => /@Controller\(|controllers\s*:/.test(f.text))).toBe(false);
   });
 });
@@ -178,5 +180,30 @@ describe('arquitetura da autenticação', () => {
     for (const file of files) {
       expect(file.text, file.path).not.toMatch(/enableCors|cors\s*:/);
     }
+  });
+});
+
+describe('arquitetura da autorização', () => {
+  const module = files.filter((f) => f.path.startsWith('access/'));
+
+  it('não acessa persistência, módulos financeiros ou modos educacionais, e não registra logs', () => {
+    expect(module.length).toBeGreaterThan(0);
+    for (const file of module) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/prisma|generated|persistence|payment-execution|reconciliation|education/);
+      }
+      expect(file.text, file.path).not.toMatch(/console\.|Logger/);
+    }
+  });
+
+  it('nenhum outro módulo depende dela, salvo a raiz', () => {
+    const users = files.filter((f) => !f.path.startsWith('access/') && imports(f.text).some((s) => /\/access\//.test(s)));
+    expect(users.map((f) => f.path)).toEqual(['app.module.ts']);
+  });
+
+  it('o controller não lê o identificador do caminho', () => {
+    const controllers = module.filter((f) => /@Controller\(/.test(f.text));
+    expect(controllers).toHaveLength(1);
+    expect(controllers[0]?.text).not.toMatch(/@Param\(|@Req\(|\.params/);
   });
 });

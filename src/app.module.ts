@@ -1,4 +1,5 @@
 import { type DynamicModule, Module } from '@nestjs/common';
+import { AccessModule } from './access/access.module.js';
 import { AuthenticationModule } from './authentication/authentication.module.js';
 import type { AppConfig } from './config/app-config.js';
 import { HealthModule } from './health/health.module.js';
@@ -11,10 +12,12 @@ import { ReconciliationModule } from './reconciliation/reconciliation.module.js'
 @Module({})
 export class AppModule {
   static forRoot(config: AppConfig): DynamicModule {
+    const authentication = AuthenticationModule.forRoot(config);
     return {
       module: AppModule,
       imports: [
-        AuthenticationModule.forRoot(config),
+        AccessModule.forRoot(authentication),
+        authentication,
         HealthModule,
         HttpModule,
         IdentityModule,

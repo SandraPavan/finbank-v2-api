@@ -1,3 +1,4 @@
+import { PAGE_DEFAULT_LIMIT, PAGE_MAX_LIMIT, PAGE_MAX_OFFSET } from './page.js';
 import { PROBLEMS, type ProblemCode } from './problem.js';
 
 // Contrato de /api/v1, escrito à mão e conferido por testes contra as rotas e respostas reais.
@@ -62,6 +63,10 @@ const SESSION_FIELDS = {
   workspaceId: { type: ['string', 'null'], format: 'uuid', description: 'Workspace do cliente; null para facilitador' },
   idleExpiresAt: { type: 'string', format: 'date-time' },
   absoluteExpiresAt: { type: 'string', format: 'date-time' },
+};
+const WORKSPACE_FIELDS = {
+  workspaceId: { type: 'string', format: 'uuid' },
+  alias: { type: ['string', 'null'] },
 };
 const CSRF_TOKEN = { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' };
 
@@ -135,6 +140,30 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/facilitator/workspaces': {
+      get: {
+        operationId: 'listFacilitatorWorkspaces',
+        summary: 'Workspaces com vínculo ativo do facilitador',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Offset' }],
+        responses: {
+          200: { description: 'Página, por ordem de criação', headers: CORRELATION, content: json('WorkspacePage') },
+          ...problems(...COMMON, ...SESSION),
+        },
+      },
+    },
+    '/api/v1/facilitator/workspaces/{workspaceId}': {
+      get: {
+        operationId: 'getFacilitatorWorkspace',
+        summary: 'Workspace com vínculo ativo do facilitador',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }],
+        responses: {
+          200: { description: 'Workspace', headers: CORRELATION, content: json('Workspace') },
+          ...problems(...COMMON, ...SESSION, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {
@@ -144,6 +173,25 @@ export const OPENAPI_DOCUMENT = {
     headers: { CorrelationId: { schema: { type: 'string', pattern: '^[A-Za-z0-9._-]{8,64}$' } } },
     parameters: {
       CsrfToken: { name: 'X-CSRF-Token', in: 'header', required: true, schema: CSRF_TOKEN },
+      WorkspaceId: {
+        name: 'workspaceId',
+        in: 'path',
+        required: true,
+        description: 'Sem vínculo, inexistente ou malformado: o mesmo 404',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      Limit: {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 1, maximum: PAGE_MAX_LIMIT, default: PAGE_DEFAULT_LIMIT },
+      },
+      Offset: {
+        name: 'offset',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 0, maximum: PAGE_MAX_OFFSET, default: 0 },
+      },
       OptionalCsrfToken: {
         name: 'X-CSRF-Token',
         in: 'header',
@@ -159,6 +207,11 @@ export const OPENAPI_DOCUMENT = {
       PasswordChange: fields({ currentPassword: text, newPassword: text }),
       Session: fields(SESSION_FIELDS),
       OpenedSession: fields({ ...SESSION_FIELDS, csrfToken: CSRF_TOKEN }),
+      Workspace: fields(WORKSPACE_FIELDS),
+      WorkspacePage: fields({
+        items: { type: 'array', items: fields(WORKSPACE_FIELDS) },
+        nextOffset: { type: ['integer', 'null'], description: 'Início da próxima página; null na última' },
+      }),
       Problem: {
         type: 'object',
         additionalProperties: false,

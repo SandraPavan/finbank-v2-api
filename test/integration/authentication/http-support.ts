@@ -1,4 +1,5 @@
 // Cliente HTTP dos testes de autenticação: cookies explícitos e toda resposta conferida contra o OpenAPI.
+import type { Type } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { spec } from 'pactum';
@@ -8,9 +9,9 @@ import { loadAppConfig } from '../../../src/config/app-config.js';
 import { configureHttp, HTTP_APPLICATION_OPTIONS } from '../../../src/http/configure-http.js';
 import { OPENAPI_DOCUMENT } from '../../../src/http/openapi.js';
 
-export async function startApp(env: Record<string, string> = {}): Promise<{ app: NestExpressApplication; url: string }> {
+export async function startApp(env: Record<string, string> = {}, controllers: Type[] = []): Promise<{ app: NestExpressApplication; url: string }> {
   const config = { ...loadAppConfig({ DATABASE_URL: inject('appDatabaseUrl'), ...env }), port: 0 };
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(config)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(config)], controllers }).compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>({ ...HTTP_APPLICATION_OPTIONS, logger: false });
   configureHttp(app);
   await app.listen(0, '127.0.0.1');
@@ -43,6 +44,12 @@ function inline(schema: unknown): unknown {
   return Object.fromEntries(Object.entries(schema).map(([k, v]) => [k, inline(v)]));
 }
 
+/** Caminho do contrato que atende à URL, com ou sem parâmetros. */
+export function contractPath(url: string): string | undefined {
+  const path = url.split('?')[0] ?? '';
+  return Object.keys(OPENAPI_DOCUMENT.paths).find((p) => new RegExp(`^${p.replace(/[.]/g, '\\.').replace(/\{[^}]+\}/g, '[^/]+')}$`).test(path));
+}
+
 export interface CallOptions {
   readonly headers?: Record<string, string>;
   readonly json?: unknown;
@@ -63,7 +70,7 @@ export async function call(url: string, method: 'GET' | 'POST', path: string, op
     text?: string;
   };
   const paths = OPENAPI_DOCUMENT.paths as Record<string, Record<string, { responses: Record<string, { content?: Json }> }>>;
-  const operation = paths[path]?.[method.toLowerCase()];
+  const operation = paths[contractPath(path) ?? '']?.[method.toLowerCase()];
   if (operation !== undefined) {
     const documented = operation.responses[String(response.statusCode)];
     expect(documented, `${method} ${path} ${response.statusCode} não documentado`).toBeDefined();
@@ -101,8 +108,12 @@ export class Browser {
     return [...this.jar].map(([name, value]) => `${name}=${value}`).join('; ');
   }
 
-  async send(method: 'GET' | 'POST', path: string, json?: unknown, headers: Record<string, string> = {}): Promise<Reply> {
-    const reply = await call(this.url, method, `/api/v1/auth${path}`, {
+  send(method: 'GET' | 'POST', path: string, json?: unknown, headers: Record<string, string> = {}): Promise<Reply> {
+    return this.api(method, `/auth${path}`, json, headers);
+  }
+
+  async api(method: 'GET' | 'POST', path: string, json?: unknown, headers: Record<string, string> = {}): Promise<Reply> {
+    const reply = await call(this.url, method, `/api/v1${path}`, {
       ...(json === undefined ? {} : { json }),
       headers: {
         ...this.extra,

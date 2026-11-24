@@ -1,4 +1,5 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
+import { PublicAccess } from '../http/access-policy.js';
 import { HealthService, type LivenessStatus, type ReadinessStatus } from './health.service.js';
 
 /** Subconjunto da resposta HTTP usado aqui, sem acoplar o controller ao Express. */
@@ -8,6 +9,7 @@ interface ProbeResponse {
 }
 
 @Controller('health')
+@PublicAccess()
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 

@@ -12,11 +12,15 @@ const CODES: Record<AuthenticationErrorCode, ProblemCode> = {
   AUTHENTICATION_FAILED: 'TEMPORARY_UNAVAILABLE',
 };
 
+export function authenticationProblem(error: AuthenticationError): ProblemError {
+  const options = error instanceof RateLimitedError ? { retryAfterSeconds: error.retryAfterSeconds } : {};
+  return new ProblemError(CODES[error.code], options);
+}
+
 @Catch(AuthenticationError)
 export class AuthenticationProblemFilter implements ExceptionFilter<AuthenticationError> {
   catch(error: AuthenticationError, host: ArgumentsHost): void {
     const http = host.switchToHttp();
-    const options = error instanceof RateLimitedError ? { retryAfterSeconds: error.retryAfterSeconds } : {};
-    sendProblem(http.getRequest<HttpRequest>(), http.getResponse<HttpResponse>(), new ProblemError(CODES[error.code], options));
+    sendProblem(http.getRequest<HttpRequest>(), http.getResponse<HttpResponse>(), authenticationProblem(error));
   }
 }

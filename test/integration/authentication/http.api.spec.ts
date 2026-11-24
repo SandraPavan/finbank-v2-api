@@ -436,8 +436,8 @@ describe('autenticação por HTTP (PactumJS, PostgreSQL real)', () => {
         layer.route === undefined ? [] : Object.keys(layer.route.methods).map((m) => `${m} ${layer.route?.path}`),
       );
       const documented = Object.entries(OPENAPI_DOCUMENT.paths).flatMap(([path, item]) => Object.keys(item).map((m) => `${m} ${path}`));
-      expect(documented.length).toBe(8);
-      expect(registered.filter((r) => r.includes('/api/')).sort()).toEqual(documented.sort());
+      expect(documented.length).toBe(10);
+      expect(registered.filter((r) => r.includes('/api/')).map((r) => r.replace(/:(\w+)/g, '{$1}')).sort()).toEqual(documented.sort());
     });
 
     it('a conferência de schemas está ativa, inclusive em Problem Details', async () => {
