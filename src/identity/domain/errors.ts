@@ -1,10 +1,12 @@
-// Erros tipados do acesso a workspaces. Mensagens fixas por código, sem valores recebidos.
+// Erros tipados de identidade e acesso a workspaces. Mensagens fixas por código, sem valores recebidos.
 // ACCESS_DENIED é o mesmo para qualquer motivo de negação: não revela o que existe.
 
-export type IdentityErrorCode = 'INVALID_INPUT' | 'ACCESS_DENIED' | 'ACCESS_CHECK_FAILED';
+export type IdentityErrorCode = 'INVALID_INPUT' | 'INVALID_EMAIL' | 'INVALID_ALIAS' | 'ACCESS_DENIED' | 'ACCESS_CHECK_FAILED';
 
 const MESSAGES: Record<IdentityErrorCode, string> = {
   INVALID_INPUT: 'Entrada inválida: identificadores devem ser UUID em minúsculas',
+  INVALID_EMAIL: 'E-mail inválido',
+  INVALID_ALIAS: 'Alias de workspace inválido',
   ACCESS_DENIED: 'Acesso negado ao workspace',
   ACCESS_CHECK_FAILED: 'Falha ao verificar o acesso ao workspace',
 };

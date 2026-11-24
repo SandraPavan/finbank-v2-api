@@ -5,7 +5,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export const WORKSPACE_ROLES = ['CUSTOMER', 'FACILITATOR'] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
-/** Acesso confirmado: papel da identidade naquele workspace, e somente nele. */
+/** Acesso confirmado àquele workspace, e somente a ele. O papel é o perfil da identidade. */
 export interface WorkspaceAccess {
   readonly identityId: string;
   readonly workspaceId: string;

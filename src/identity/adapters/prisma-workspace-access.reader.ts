@@ -10,13 +10,18 @@ export class PrismaWorkspaceAccessReader implements WorkspaceAccessReader {
   async findActiveRole(identityId: string, workspaceId: string): Promise<string | null> {
     try {
       const rows = await this.client.$queryRaw<{ role: string }[]>`
-        SELECT m."role"::text AS "role"
-          FROM "workspace_membership" m
-          JOIN "user_identity" i ON i."id" = m."identity_id"
-         WHERE m."identity_id" = ${identityId}::uuid
-           AND m."workspace_id" = ${workspaceId}::uuid
-           AND m."status" = 'ACTIVE'
-           AND i."status" = 'ACTIVE'`;
+        SELECT i."profile"::text AS "role"
+          FROM "user_identity" i
+         WHERE i."id" = ${identityId}::uuid
+           AND i."status" = 'ACTIVE'
+           AND (
+             (i."profile" = 'CUSTOMER' AND i."workspace_id" = ${workspaceId}::uuid)
+             OR (i."profile" = 'FACILITATOR' AND EXISTS (
+               SELECT 1 FROM "workspace_membership" m
+                WHERE m."identity_id" = i."id"
+                  AND m."workspace_id" = ${workspaceId}::uuid
+                  AND m."status" = 'ACTIVE'))
+           )`;
       return rows[0]?.role ?? null;
     } catch (error) {
       throw new IdentityError('ACCESS_CHECK_FAILED', databaseErrorCode(error));

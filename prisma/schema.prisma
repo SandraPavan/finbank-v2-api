@@ -1,6 +1,6 @@
 // Persistência da API. DEV-003: fundação sem modelos.
 // DEV-010: núcleo de execução financeira (contas técnicas, operações e ledger).
-// DEV-014: identidades e vínculos com workspaces.
+// DEV-014 e DEV-015: identidades, vínculos com workspaces, e-mail de login e alias.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -57,7 +57,9 @@ model Workspace {
   accounts    Account[]
   operations  PaymentOperation[]
   entries     LedgerEntry[]
+  alias       String?               @unique @db.VarChar(40)
   memberships WorkspaceMembership[]
+  customers   UserIdentity[]
 
   @@map("workspace")
 }
@@ -121,17 +123,23 @@ model LedgerEntry {
   @@map("ledger_entry")
 }
 
-/// Identidade que pode acessar workspaces. Sem dados pessoais nem credenciais.
+/// Identidade que acessa workspaces. CUSTOMER pertence a um único workspace; FACILITATOR é global.
+/// E-mail sempre normalizado; unicidade por perfil em índices parciais da migração.
 model UserIdentity {
   id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   status      IdentityStatus
+  profile     MembershipRole
+  email       String                @db.VarChar(254)
+  workspaceId String?               @map("workspace_id") @db.Uuid
+  workspace   Workspace?            @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   memberships WorkspaceMembership[]
 
+  @@unique([id, profile])
   @@map("user_identity")
 }
 
-/// Vínculo com papel, único por workspace e identidade. Papel e estado sempre explícitos.
+/// Vínculo administrativo, único por workspace e identidade. Somente FACILITATOR (CHECK na migração).
 model WorkspaceMembership {
   workspaceId String           @map("workspace_id") @db.Uuid
   identityId  String           @map("identity_id") @db.Uuid
@@ -139,7 +147,7 @@ model WorkspaceMembership {
   status      MembershipStatus
   createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  identity    UserIdentity     @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  identity    UserIdentity     @relation(fields: [identityId, role], references: [id, profile], onDelete: Restrict, onUpdate: Restrict)
 
   @@id([workspaceId, identityId])
   @@index([identityId])

@@ -12,11 +12,13 @@ import { ReconciliationService } from '../../src/reconciliation/application/reco
 const run = promisify(execFile);
 const prismaBin = resolve('node_modules/.bin/prisma');
 const UPGRADE_DB = 'finbank_v2_upgrade_check';
+const BLOCKED_DB = 'finbank_v2_upgrade_blocked';
 const BEFORE = ['00000000000000_baseline', '20261119000000_payment_execution_core'];
 const AFTER = [
   '20261120000000_payment_reversal_reconciliation',
   '20261121000000_runtime_role_privileges',
   '20261123000000_identity_membership',
+  '20261124000000_identity_profile',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';
@@ -40,6 +42,7 @@ describe('migração aditiva sobre dados existentes', () => {
   let main: PrismaService;
   let upgraded: PrismaService | undefined;
   let runtime: PrismaService | undefined;
+  let blocked: PrismaService | undefined;
 
   beforeAll(async () => {
     main = new PrismaService({ databaseUrl: mainUrl });
@@ -50,7 +53,9 @@ describe('migração aditiva sobre dados existentes', () => {
   afterAll(async () => {
     await runtime?.onModuleDestroy();
     await upgraded?.onModuleDestroy();
+    await blocked?.onModuleDestroy();
     await main?.client.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${UPGRADE_DB}" WITH (FORCE)`);
+    await main?.client.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${BLOCKED_DB}" WITH (FORCE)`);
     await main?.onModuleDestroy();
   });
 
@@ -114,5 +119,32 @@ describe('migração aditiva sobre dados existentes', () => {
     await expect(
       prisma(upgradeUrl, 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'),
     ).resolves.toBeUndefined();
+  });
+
+  it('identidade já cadastrada interrompe a migração de perfil sem alterar nada', async () => {
+    await main.client.$executeRawUnsafe(`CREATE DATABASE "${BLOCKED_DB}"`);
+    const url = new URL(mainUrl);
+    url.pathname = `/${BLOCKED_DB}`;
+    for (const migration of [...BEFORE, ...AFTER.slice(0, -1)]) {
+      await prisma(url.toString(), 'db', 'execute', '--file', `prisma/migrations/${migration}/migration.sql`);
+    }
+    blocked = new PrismaService({ databaseUrl: url.toString() });
+    await blocked.onModuleInit();
+    const db = blocked.client;
+    await db.$executeRaw`INSERT INTO "user_identity" ("id", "status") VALUES (${WS}::uuid, 'ACTIVE')`;
+
+    const structure = () => db.$queryRaw<{ item: string }[]>`
+      SELECT table_name || '.' || column_name AS "item" FROM information_schema.columns WHERE table_schema = 'public'
+      UNION ALL SELECT conname FROM pg_constraint WHERE connamespace = 'public'::regnamespace
+      UNION ALL SELECT indexname FROM pg_indexes WHERE schemaname = 'public'
+      UNION ALL SELECT tgname FROM pg_trigger WHERE NOT tgisinternal
+      ORDER BY 1`;
+    const before = await structure();
+    await expect(
+      prisma(url.toString(), 'db', 'execute', '--file', 'prisma/migrations/20261124000000_identity_profile/migration.sql'),
+    ).rejects.toThrow(/migração interrompida/);
+    expect(await structure()).toEqual(before);
+    const rows = await db.$queryRaw<{ id: string; status: string }[]>`SELECT "id"::text AS "id", "status"::text AS "status" FROM "user_identity"`;
+    expect(rows).toEqual([{ id: WS, status: 'ACTIVE' }]);
   });
 });

@@ -62,6 +62,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261120000000_payment_reversal_reconciliation', finished: true },
       { migration_name: '20261121000000_runtime_role_privileges', finished: true },
       { migration_name: '20261123000000_identity_membership', finished: true },
+      { migration_name: '20261124000000_identity_profile', finished: true },
     ]);
   });
 
@@ -70,7 +71,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(5);
+    expect(rows[0]?.total).toBe(6);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -112,6 +113,10 @@ describe('migrações Prisma em banco descartável', () => {
       'payment_operation_fingerprint_format',
       'payment_operation_key_format',
       'payment_operation_reversal_link',
+      'user_identity_email_normalized',
+      'user_identity_profile_workspace',
+      'workspace_alias_format',
+      'workspace_membership_facilitator_only',
     ]);
 
     const triggers = await db.client.$queryRaw<{ tgname: string; deferred: boolean }[]>`
@@ -125,11 +130,19 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'payment_operation_immutable', deferred: false },
       { tgname: 'payment_operation_no_truncate', deferred: false },
       { tgname: 'payment_operation_reversal_matches', deferred: false },
+      { tgname: 'user_identity_immutable', deferred: false },
+      { tgname: 'workspace_id_immutable', deferred: false },
     ]);
 
     const partial = await db.client.$queryRaw<{ indexdef: string }[]>`
       SELECT indexdef FROM pg_indexes WHERE indexname = 'account_one_contra_per_workspace'`;
     expect(partial[0]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id\) WHERE \(kind = 'CONTRA'/);
+
+    const emails = await db.client.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+       WHERE indexname IN ('user_identity_customer_email', 'user_identity_facilitator_email') ORDER BY indexname`;
+    expect(emails[0]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id, email\) WHERE \(profile = 'CUSTOMER'/);
+    expect(emails[1]?.indexdef).toMatch(/UNIQUE INDEX .*\(email\) WHERE \(profile = 'FACILITATOR'/);
 
     const reversalLink = await db.client.$queryRaw<{ indexdef: string }[]>`
       SELECT indexdef FROM pg_indexes WHERE indexname = 'payment_operation_workspace_id_reverses_operation_id_key'`;

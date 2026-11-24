@@ -1,5 +1,8 @@
-/** Porta de leitura do vínculo entre identidade e workspace. */
+/** Porta de leitura do acesso de uma identidade a um workspace. */
 export interface WorkspaceAccessReader {
-  /** Papel do vínculo ativo de uma identidade ativa; null em qualquer outro caso. */
+  /**
+   * Perfil da identidade ativa que acessa o workspace: cliente, só o próprio; facilitador, só com
+   * vínculo ativo. Null em qualquer outro caso.
+   */
   findActiveRole(identityId: string, workspaceId: string): Promise<string | null>;
 }

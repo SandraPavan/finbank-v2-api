@@ -2,7 +2,7 @@
 
 API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Este repositório é público e autossuficiente: setup, execução e testes dependem só dele (e de `finbank-v2-web` e `finbank-v2-infra` para o ambiente completo). As referências a histórias (DEV-xxx) e decisões (PD-xx) vêm da documentação interna da equipe e não são necessárias para usar o projeto.
 
-Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011, DEV-012 e DEV-014): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos, e o modelo de identidades e vínculos com workspaces (consulta interna de acesso, sem rota). Sem PIX, autenticação, worker ou rotas financeiras.
+Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011, DEV-012, DEV-014 e DEV-015): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos, e o modelo de identidades e vínculos com workspaces (consulta interna de acesso, sem rota). Sem PIX, autenticação, worker ou rotas financeiras.
 
 ## Runtime e versões (PD-02, resolvida na DEV-001)
 
@@ -79,6 +79,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - A migração `20261121000000_runtime_role_privileges` cria, se não existir, o papel de grupo `finbank_runtime` (o migrador precisa poder criar papéis: superusuário ou `CREATEROLE`; vale no Compose e nos testes) e concede somente os privilégios da execução (veja Papéis no banco). Toda migração futura que criar tabela deve conceder explicitamente o que a execução precisa: o teste da matriz de privilégios acusa divergência.
 - A migração `20261120000000_payment_reversal_reconciliation` é aditiva: acrescenta o tipo da operação (as existentes ficam `TRANSFER`) e o vínculo do estorno e, em SQL manual, o `CHECK` de coerência do vínculo, o trigger que confere o estorno contra a operação de origem e o trigger que impede alterar a identidade da conta.
 - A migração `20261123000000_identity_membership` é aditiva: cria identidades e vínculos, sem dados iniciais, e concede só leitura à execução.
+- A migração `20261124000000_identity_profile` acrescenta perfil, e-mail e alias. Se houver identidade ou vínculo cadastrado, ela para sem alterar nada (perfil e e-mail não podem ser deduzidos). Nesse caso o Prisma registra a migração como falha: trate os dados e use `prisma migrate resolve --rolled-back 20261124000000_identity_profile` antes de aplicar de novo.
 - A suíte de integração aplica as migrações no `global-setup.ts` e verifica em banco descartável: as migrações registradas em ordem, repetir é idempotente, as restrições manuais existem no catálogo do PostgreSQL, `migrate status` informa banco atualizado e `migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` não encontra divergência.
 - Não executar reset nem migração destrutiva em banco persistente sem autorização explícita.
 
@@ -110,15 +111,18 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - **Banco indisponível na subida:** continua sendo fail-fast, com código de saída 1 (DEV-003).
 - **Healthcheck de container:** `dist/healthcheck.js` chama `http://127.0.0.1:$PORT/health/ready` e sai com 0 só em HTTP 200. Usa o mesmo parser de `PORT` da aplicação e tem timeout de 2,5 s. O Compose do `finbank-v2-infra` usa esse script.
 
-## Identidade e vínculos (DEV-014)
+## Identidade e vínculos (DEV-014 e DEV-015)
 
 `src/identity/` responde se uma identidade acessa um workspace e com qual papel (`CUSTOMER` ou `FACILITATOR`), por meio de `WorkspaceAccessService.resolve(identityId, workspaceId)`:
 
-- **Nega por padrão:** só há acesso com identidade `ACTIVE` e vínculo `ACTIVE` com aquele workspace. Qualquer outro caso produz o mesmo `ACCESS_DENIED`, sem revelar o que existe.
+- **Perfis:** `CUSTOMER` pertence a exatamente um workspace e só acessa o próprio; `FACILITATOR` é global e só acessa onde tem vínculo administrativo `ACTIVE`.
+- **Nega por padrão:** a identidade precisa estar `ACTIVE`. Qualquer outro caso produz o mesmo `ACCESS_DENIED`, sem revelar o que existe.
 - **Erros:** `INVALID_INPUT` (identificador que não é UUID em minúsculas; o banco não é consultado) e `ACCESS_CHECK_FAILED` (falha do banco, sem a causa original; nunca concede acesso).
 - **Sem cache:** revogar um vínculo ou desativar uma identidade vale na consulta seguinte.
 - **Não é autenticação:** quem chamar precisa fornecer uma identidade já autenticada. Ainda não há credencial, sessão, rota nem caso de uso que crie identidades.
-- **Banco:** um vínculo por par (workspace, identidade); papel e estados sem valor padrão; a execução só lê as duas tabelas.
+- **E-mail (`domain/email.ts`):** sem espaços externos, em minúsculas, ASCII, até 254 caracteres; pontos e sufixos com `+` preservados. Único por workspace entre clientes e único entre facilitadores. O banco recusa a forma não normalizada.
+- **Alias (`domain/workspace-alias.ts`):** opcional e único, 3 a 40 caracteres `a-z`, `0-9` ou hífen (sem hífen nas pontas). Localiza o workspace, não é credencial, e pode passar a outro workspace numa transação (liberar e depois atribuir).
+- **Banco:** vínculo só para facilitador, um por par (workspace, identidade); identificador, perfil e workspace da identidade e identificador do workspace são imutáveis (`23001`); perfil, papel e estados sem valor padrão; a execução só lê.
 
 ## Modos educacionais (DEV-006)
 
