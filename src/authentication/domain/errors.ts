@@ -6,6 +6,7 @@ export type AuthenticationErrorCode =
   | 'SESSION_INVALID'
   | 'SESSION_EXPIRED'
   | 'PASSWORD_POLICY'
+  | 'RATE_LIMITED'
   | 'AUTHENTICATION_FAILED';
 
 const MESSAGES: Record<AuthenticationErrorCode, string> = {
@@ -13,6 +14,7 @@ const MESSAGES: Record<AuthenticationErrorCode, string> = {
   SESSION_INVALID: 'Sessão inválida',
   SESSION_EXPIRED: 'Sessão expirada',
   PASSWORD_POLICY: 'A senha deve ter de 12 a 128 caracteres',
+  RATE_LIMITED: 'Muitas tentativas; aguarde antes de tentar novamente',
   AUTHENTICATION_FAILED: 'Falha ao processar a autenticação',
 };
 
@@ -28,5 +30,14 @@ export class AuthenticationError extends Error {
     this.code = code;
     this.technicalCode =
       technicalCode !== undefined && SAFE_TECHNICAL_CODE.test(technicalCode) ? technicalCode : undefined;
+  }
+}
+
+export class RateLimitedError extends AuthenticationError {
+  readonly retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number) {
+    super('RATE_LIMITED');
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }

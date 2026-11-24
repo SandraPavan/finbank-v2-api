@@ -44,6 +44,7 @@ describe('migrações Prisma em banco descartável', () => {
         'enum MembershipStatus',
         'enum OperationType',
         'model Account',
+        'model AuthenticationControl',
         'model LedgerEntry',
         'model PasswordCredential',
         'model PaymentOperation',
@@ -66,6 +67,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261123000000_identity_membership', finished: true },
       { migration_name: '20261124000000_identity_profile', finished: true },
       { migration_name: '20261125000000_password_session', finished: true },
+      { migration_name: '20261126000000_authentication_control', finished: true },
     ]);
   });
 
@@ -74,7 +76,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(7);
+    expect(rows[0]?.total).toBe(8);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -96,6 +98,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(tables.map((t) => t.table_name)).toEqual([
       '_prisma_migrations',
       'account',
+      'authentication_control',
       'ledger_entry',
       'password_credential',
       'payment_operation',
@@ -112,6 +115,8 @@ describe('migrações Prisma em banco descartável', () => {
       SELECT conname FROM pg_constraint WHERE contype = 'c' AND connamespace = 'public'::regnamespace ORDER BY conname`;
     expect(checks.map((c) => c.conname)).toEqual([
       'account_standard_non_negative',
+      'authentication_control_failures_positive',
+      'authentication_control_subject_format',
       'ledger_entry_amount_nonzero',
       'password_credential_hash_format',
       'payment_operation_amount_positive',

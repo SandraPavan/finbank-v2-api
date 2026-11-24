@@ -6,6 +6,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import { request, spec } from 'pactum';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../../src/app.module.js';
+import { loadAppConfig } from '../../src/config/app-config.js';
 import { READINESS_TIMEOUT_MS } from '../../src/health/health.service.js';
 import { PrismaService } from '../../src/persistence/prisma.service.js';
 import { POSTGRES_IMAGE } from './global-setup.js';
@@ -78,7 +79,7 @@ describe('health — contrato HTTP com PostgreSQL real (PactumJS)', () => {
     await admin.onModuleInit();
 
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule.forRoot({ port: 0, databaseUrl: container.getConnectionUri(), session: { idleMinutes: 30, absoluteMinutes: 480 } })],
+      imports: [AppModule.forRoot({ ...loadAppConfig({ DATABASE_URL: container.getConnectionUri() }), port: 0 })],
     }).compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0, '127.0.0.1');

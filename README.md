@@ -2,7 +2,7 @@
 
 API NestJS/TypeScript do FinBank V2 (monólito modular, arquitetura hexagonal pragmática). Este repositório é público e autossuficiente: setup, execução e testes dependem só dele (e de `finbank-v2-web` e `finbank-v2-infra` para o ambiente completo). As referências a histórias (DEV-xxx) e decisões (PD-xx) vêm da documentação interna da equipe e não são necessárias para usar o projeto.
 
-Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011, DEV-012, DEV-014, DEV-015 e DEV-016): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos, e o modelo de identidades e vínculos com workspaces (consulta interna de acesso, sem rota) e os casos de uso de senha e sessão (sem rota). Sem PIX, login por HTTP, worker ou rotas financeiras.
+Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011, DEV-012, DEV-014, DEV-015, DEV-016 e DEV-017): bootstrap, composição de módulos, módulo técnico `health` (liveness e readiness), adaptador de persistência PostgreSQL/Prisma, contrato de domínio dos modos educacionais (sem endpoint e com catálogo de defeitos vazio) e núcleo de execução financeira (ledger de dupla entrada, PaymentExecution com estorno compensatório e reconciliação somente leitura, sem rota exposta), com a API conectando por um papel de execução de privilégios mínimos, e o modelo de identidades e vínculos com workspaces (consulta interna de acesso, sem rota) e autenticação por HTTP em `/api/v1/auth`. Sem PIX, worker ou rotas financeiras.
 
 ## Runtime e versões (PD-02, resolvida na DEV-001)
 
@@ -65,6 +65,11 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 | `DATABASE_URL` | — (obrigatória) | URL `postgres://` ou `postgresql://` com host; ausente ou inválida encerra com código 1. A mensagem nunca inclui o valor |
 | `SESSION_IDLE_MINUTES` | `30` | Inteiro de 1 a 1440, menor ou igual a `SESSION_ABSOLUTE_MINUTES`; inválido encerra com código 1 |
 | `SESSION_ABSOLUTE_MINUTES` | `480` | Inteiro de 1 a 1440; inválido encerra com código 1 |
+| `COOKIE_TRANSPORT` | `secure` | `secure` ou `local-http`; inválido encerra com código 1 |
+| `LOGIN_MAX_ATTEMPTS` | `5` | 1 a 100 |
+| `LOGIN_WINDOW_MINUTES` | `15` | 1 a 1440 |
+| `LOGIN_RESTRICTION_SECONDS` | `30` | 1 a 3600 |
+| `LOGIN_MAX_RESTRICTION_SECONDS` | `900` | Até 86400, não menor que a inicial |
 
 ## Persistência
 
@@ -83,6 +88,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - A migração `20261123000000_identity_membership` é aditiva: cria identidades e vínculos, sem dados iniciais, e concede só leitura à execução.
 - A migração `20261124000000_identity_profile` acrescenta perfil, e-mail e alias. Se houver identidade ou vínculo cadastrado, ela para sem alterar nada (perfil e e-mail não podem ser deduzidos). Nesse caso o Prisma registra a migração como falha: trate os dados e use `prisma migrate resolve --rolled-back 20261124000000_identity_profile` antes de aplicar de novo.
 - A migração `20261125000000_password_session` é aditiva: cria credenciais e sessões, sem dados iniciais, com as concessões da execução.
+- A migração `20261126000000_authentication_control` é aditiva: cria o contador de tentativas.
 - A suíte de integração aplica as migrações no `global-setup.ts` e verifica em banco descartável: as migrações registradas em ordem, repetir é idempotente, as restrições manuais existem no catálogo do PostgreSQL, `migrate status` informa banco atualizado e `migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` não encontra divergência.
 - Não executar reset nem migração destrutiva em banco persistente sem autorização explícita.
 
@@ -122,14 +128,46 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - **Nega por padrão:** a identidade precisa estar `ACTIVE`. Qualquer outro caso produz o mesmo `ACCESS_DENIED`, sem revelar o que existe.
 - **Erros:** `INVALID_INPUT` (identificador que não é UUID em minúsculas; o banco não é consultado) e `ACCESS_CHECK_FAILED` (falha do banco, sem a causa original; nunca concede acesso).
 - **Sem cache:** revogar um vínculo ou desativar uma identidade vale na consulta seguinte.
-- **Não é autenticação:** quem chamar precisa fornecer uma identidade já autenticada. Ainda não há rota nem caso de uso que crie identidades.
+- **Não é autenticação:** quem chamar precisa fornecer uma identidade já autenticada. Ainda não há caso de uso que crie identidades.
 - **E-mail (`domain/email.ts`):** sem espaços externos, em minúsculas, ASCII, até 254 caracteres; pontos e sufixos com `+` preservados. Único por workspace entre clientes e único entre facilitadores. O banco recusa a forma não normalizada.
 - **Alias (`domain/workspace-alias.ts`):** opcional e único, 3 a 40 caracteres `a-z`, `0-9` ou hífen (sem hífen nas pontas). Localiza o workspace, não é credencial, e pode passar a outro workspace numa transação (liberar e depois atribuir).
 - **Banco:** vínculo só para facilitador, um por par (workspace, identidade); identificador, perfil e workspace da identidade e identificador do workspace são imutáveis (`23001`); perfil, papel e estados sem valor padrão; a execução só lê.
 
+## Autenticação por HTTP (DEV-017)
+
+Contrato completo: `GET /api/v1/openapi.json` (OpenAPI 3.1).
+
+| Rota (`/api/v1/auth`) | Uso |
+|---|---|
+| `GET /csrf` | Token do contexto; sem sessão, cria o contexto pré-autenticado |
+| `POST /customer/login` | `alias`, `email`, `password` |
+| `POST /facilitator/login` | `email`, `password` |
+| `GET /me` | Identidade, perfil, workspace e prazos |
+| `POST /logout`, `POST /logout-all` | 204; removem os cookies |
+| `POST /password/change` | `currentPassword`, `newPassword`; abre nova sessão |
+
+Uso com qualquer cliente que guarde cookies:
+
+```sh
+BASE=http://127.0.0.1:13000/api/v1/auth
+curl -c jar -b jar $BASE/csrf                       # {"csrfToken":"..."}
+curl -c jar -b jar -H 'X-CSRF-Token: <token>' -H 'Content-Type: application/json' \
+  -d '{"email":"pessoa@example.test","password":"..."}' $BASE/facilitator/login
+curl -b jar $BASE/me                                # use o novo csrfToken do login nos próximos POST
+```
+
+- **Cookies:** `__Host-finbank_session` e `__Host-finbank_preauth` (`HttpOnly`, `SameSite=Strict`, `Secure`, `Path=/`, sem `Domain`). O segredo nunca vai no corpo. O modo é `COOKIE_TRANSPORT`: `secure` (padrão, exige HTTPS) ou `local-http` (sem `Secure` e sem prefixo; as rotas de autenticação só atendem `Host` de loopback).
+- **CSRF:** todo `POST` exige `X-CSRF-Token` do contexto atual, inclusive o login. O token deriva do segredo do contexto e muda após login e troca de senha (ambos devolvem o novo). `Sec-Fetch-Site: cross-site` é recusado. Não há CORS.
+- **Contexto:** uma identidade por contexto; novo login bem-sucedido encerra a sessão anterior do mesmo contexto. Contextos diferentes convivem. O contexto pré-autenticado não tem estado no servidor: depois do login, deixa de valer no contexto autenticado.
+- **Limite de tentativas:** por login (perfil, alias e e-mail), exista ou não, e por identidade na troca de senha. A 5ª falha em 15 min restringe por 30 s; cada falha seguinte dobra, até 15 min. Durante a restrição a resposta é 429 com `Retry-After`, mesmo com senha correta. Sucesso zera. Não há bloqueio permanente nem limite por IP. Logins corretos paralelos são aceitos (até 50 em espera por login).
+- **Erros:** Problem Details (RFC 9457) com `code` estável e `correlationId`; `X-Correlation-ID` válido (8 a 64 caracteres `A-Z a-z 0-9 . _ -`) é devolvido. Nunca repetem valores recebidos.
+- **Entrada:** JSON UTF-8 sem compressão, até 10 KiB, com exatamente os campos do contrato.
+
+Ainda não há caso de uso que crie identidades: um ambiente novo não tem quem possa entrar.
+
 ## Senha e sessões (DEV-016)
 
-`src/authentication/` oferece `AuthenticationService`, sem rota: `loginCustomer` (alias, e-mail e senha), `loginFacilitator` (e-mail e senha), `validate`, `logout`, `logoutAll` e `changePassword`. Não há limite de tentativas nesta etapa, por isso nada é exposto por HTTP.
+`src/authentication/` oferece `AuthenticationService`: `loginCustomer` (alias, e-mail e senha), `loginFacilitator` (e-mail e senha), `validate`, `logout`, `logoutAll` e `changePassword`. Login e troca de senha só são expostos por `LimitedAuthenticationService`, que aplica o limite de tentativas.
 
 - **Senha:** 12 a 128 caracteres (pontos de código), sem composição obrigatória; não é aparada, normalizada nem truncada. Persistida só como Argon2id do `node:crypto` (19 MiB, 2 passagens, paralelismo 1), em formato PHC com sal próprio.
 - **Recusa de login:** sempre `INVALID_CREDENTIALS`, sem sessão. Sem credencial correspondente, executa a mesma verificação contra um hash fictício; isso reduz a diferença de tempo, sem prometer tempo idêntico.
@@ -167,7 +205,7 @@ Ainda não há endpoint, persistência nem variável de ambiente, porque depende
 
 - **Dono do esquema:** aplica as migrações e é dono de todos os objetos. Só o serviço de migração o usa.
 - **Usuário de execução:** a API conecta com ele (`DATABASE_URL`). É membro de `finbank_runtime`, não é dono de nenhum objeto e não é superusuário nem cria papéis ou bancos.
-- **Privilégios de `finbank_runtime`:** `USAGE` no schema `public`; `SELECT` em `workspace`, `user_identity` e `workspace_membership`; `SELECT` e `INSERT` em `account`, `payment_operation` e `ledger_entry`; `SELECT` e `UPDATE` de `hash` e `updated_at` em `password_credential`; `SELECT`, `INSERT` e `UPDATE` de `last_activity_at`, `idle_expires_at` e `revoked_at` em `user_session`; em contas, `UPDATE` somente da coluna `account.balance_cents` (o que também habilita a trava de linha do PaymentExecution); nada em `_prisma_migrations`. Desligar triggers, DDL, `TRUNCATE`, alterar ou apagar operações e lançamentos, mudar `id`, `workspace_id` ou `kind` de conta, inserir workspace, escrever identidades ou vínculos e mudar `session_replication_role` são recusados com SQLSTATE `42501`.
+- **Privilégios de `finbank_runtime`:** `USAGE` no schema `public`; `SELECT` em `workspace`, `user_identity` e `workspace_membership`; `SELECT` e `INSERT` em `account`, `payment_operation` e `ledger_entry`; `SELECT` e `UPDATE` de `hash` e `updated_at` em `password_credential`; `SELECT`, `INSERT` e `UPDATE` de `last_activity_at`, `idle_expires_at` e `revoked_at` em `user_session`; `SELECT`, `INSERT`, `DELETE` e `UPDATE` (exceto a chave) em `authentication_control`, única tabela em que pode apagar; em contas, `UPDATE` somente da coluna `account.balance_cents` (o que também habilita a trava de linha do PaymentExecution); nada em `_prisma_migrations`. Desligar triggers, DDL, `TRUNCATE`, alterar ou apagar operações e lançamentos, mudar `id`, `workspace_id` ou `kind` de conta, inserir workspace, escrever identidades ou vínculos e mudar `session_replication_role` são recusados com SQLSTATE `42501`.
 - **Provisionamento:** `scripts/provision-runtime-role.mjs` (sem dependências) roda depois de `prisma migrate deploy`, conectado como dono: valida `RUNTIME_DB_USER` e `RUNTIME_DB_PASSWORD`, calcula o verificador SCRAM-SHA-256 (a senha em texto não vai ao banco) e cria ou atualiza o usuário de forma idempotente. Um papel que já existe só é reaproveitado se não tiver atributos administrativos, não pertencer a nenhum papel além de `finbank_runtime`, não for dono de objetos e não tiver privilégios diretos neste banco; caso contrário, o provisionamento falha sem alterá-lo. O próprio dono também é recusado. O estágio `migrate` da imagem executa os dois passos em sequência.
 - **Testes:** o `global-setup.ts` provisiona o usuário de execução com o mesmo script e fornece duas URLs. Serviços e bootstrap rodam pelo usuário de execução; o dono só prepara e inspeciona dados. `test/integration/runtime-privileges.spec.ts` verifica atributos, a matriz exata no catálogo e as recusas; `runtime-role-provisioning.spec.ts` verifica idempotência, troca de senha e recusas.
 - **Desenvolvimento local:** o `.env` aponta `DATABASE_URL` para o usuário de execução, e o `prisma.config.ts` lê esse arquivo. Para `npm run prisma:migrate:deploy` e para o provisionamento, informe a URL do dono na linha de comando (exemplos no `.env.example`); com a URL de execução, a migração falha por falta de privilégio (`42501`).

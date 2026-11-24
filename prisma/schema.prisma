@@ -183,3 +183,15 @@ model UserSession {
   @@index([identityId])
   @@map("user_session")
 }
+
+/// Contador de tentativas por assunto (SHA-256). Linhas vencidas são removidas pela execução.
+model AuthenticationControl {
+  subjectHash     String    @id @map("subject_hash") @db.Char(64)
+  failures        Int
+  windowStartedAt DateTime  @map("window_started_at") @db.Timestamptz(3)
+  restrictedUntil DateTime? @map("restricted_until") @db.Timestamptz(3)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("authentication_control")
+}

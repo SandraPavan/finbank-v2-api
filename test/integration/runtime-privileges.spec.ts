@@ -60,6 +60,9 @@ describe('papel de execução no PostgreSQL', () => {
     expect(tables.map((t) => t.grant)).toEqual([
       'account:INSERT',
       'account:SELECT',
+      'authentication_control:DELETE',
+      'authentication_control:INSERT',
+      'authentication_control:SELECT',
       'ledger_entry:INSERT',
       'ledger_entry:SELECT',
       'password_credential:SELECT',
@@ -82,6 +85,10 @@ describe('papel de execução no PostgreSQL', () => {
        ORDER BY 1`;
     expect(columns.map((c) => c.grant)).toEqual([
       'account.balance_cents:UPDATE',
+      'authentication_control.expires_at:UPDATE',
+      'authentication_control.failures:UPDATE',
+      'authentication_control.restricted_until:UPDATE',
+      'authentication_control.window_started_at:UPDATE',
       'password_credential.hash:UPDATE',
       'password_credential.updated_at:UPDATE',
       'user_session.idle_expires_at:UPDATE',
@@ -157,6 +164,8 @@ describe('papel de execução no PostgreSQL', () => {
       ['alterar vínculo', () => raw(`UPDATE "workspace_membership" SET "role" = 'FACILITATOR'`)],
       ['apagar vínculo', () => raw('DELETE FROM "workspace_membership"')],
       ['truncar vínculos', () => raw('TRUNCATE "workspace_membership"')],
+      ['mudar o assunto do contador', () => raw(`UPDATE "authentication_control" SET "subject_hash" = repeat('a', 64)`)],
+      ['truncar contadores', () => raw('TRUNCATE "authentication_control"')],
       ['criar credencial', () => raw(`INSERT INTO "password_credential" ("identity_id", "hash") VALUES (gen_random_uuid(), 'x')`)],
       ['apagar credencial', () => raw('DELETE FROM "password_credential"')],
       ['mover credencial', () => raw('UPDATE "password_credential" SET "identity_id" = gen_random_uuid()')],

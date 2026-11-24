@@ -20,6 +20,7 @@ const AFTER = [
   '20261123000000_identity_membership',
   '20261124000000_identity_profile',
   '20261125000000_password_session',
+  '20261126000000_authentication_control',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';

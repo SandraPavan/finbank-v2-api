@@ -12,10 +12,23 @@ export interface SessionConfig {
   readonly absoluteMinutes: number;
 }
 
+export const COOKIE_TRANSPORTS = ['secure', 'local-http'] as const;
+/** `secure` exige HTTPS; `local-http` é só para uso local e só atende endereços de loopback. */
+export type CookieTransport = (typeof COOKIE_TRANSPORTS)[number];
+
+export interface LoginLimitsConfig {
+  readonly maxAttempts: number;
+  readonly windowMinutes: number;
+  readonly restrictionSeconds: number;
+  readonly maxRestrictionSeconds: number;
+}
+
 export interface AppConfig {
   readonly port: number;
   readonly databaseUrl: string;
   readonly session: SessionConfig;
+  readonly loginLimits: LoginLimitsConfig;
+  readonly cookieTransport: CookieTransport;
 }
 
 export class InvalidConfigError extends Error {
@@ -33,6 +46,8 @@ export function loadAppConfig(env: Readonly<Record<string, string | undefined>>)
     port: parsePort(env['PORT']),
     databaseUrl: parseDatabaseUrl(env['DATABASE_URL']),
     session: parseSession(env),
+    loginLimits: parseLoginLimits(env),
+    cookieTransport: parseCookieTransport(env['COOKIE_TRANSPORT']),
   };
 }
 
@@ -49,15 +64,41 @@ function parseSession(env: Readonly<Record<string, string | undefined>>): Sessio
   return { idleMinutes, absoluteMinutes };
 }
 
+function parseLoginLimits(env: Readonly<Record<string, string | undefined>>): LoginLimitsConfig {
+  const integer = (variable: string, fallback: number, max: number) => parseInteger(variable, env[variable], fallback, max);
+  const limits = {
+    maxAttempts: integer('LOGIN_MAX_ATTEMPTS', 5, 100),
+    windowMinutes: integer('LOGIN_WINDOW_MINUTES', 15, 1440),
+    restrictionSeconds: integer('LOGIN_RESTRICTION_SECONDS', 30, 3600),
+    maxRestrictionSeconds: integer('LOGIN_MAX_RESTRICTION_SECONDS', 900, 86_400),
+  };
+  if (limits.maxRestrictionSeconds < limits.restrictionSeconds) {
+    throw new InvalidConfigError('LOGIN_MAX_RESTRICTION_SECONDS', 'deve ser maior ou igual a LOGIN_RESTRICTION_SECONDS');
+  }
+  return limits;
+}
+
+function parseCookieTransport(raw: string | undefined): CookieTransport {
+  const transport = COOKIE_TRANSPORTS.find((known) => known === (raw ?? 'secure'));
+  if (transport === undefined) {
+    throw new InvalidConfigError('COOKIE_TRANSPORT', "deve ser 'secure' ou 'local-http'");
+  }
+  return transport;
+}
+
 function parseMinutes(variable: string, raw: string | undefined, fallback: number): number {
+  return parseInteger(variable, raw, fallback, MAX_SESSION_MINUTES);
+}
+
+function parseInteger(variable: string, raw: string | undefined, fallback: number, max: number): number {
   if (raw === undefined) {
     return fallback;
   }
-  const minutes = /^[0-9]{1,4}$/.test(raw) ? Number(raw) : 0;
-  if (minutes < 1 || minutes > MAX_SESSION_MINUTES) {
-    throw new InvalidConfigError(variable, `deve ser um inteiro entre 1 e ${MAX_SESSION_MINUTES}`);
+  const value = /^[0-9]{1,5}$/.test(raw) ? Number(raw) : 0;
+  if (value < 1 || value > max) {
+    throw new InvalidConfigError(variable, `deve ser um inteiro entre 1 e ${max}`);
   }
-  return minutes;
+  return value;
 }
 
 export function parsePort(raw: string | undefined): number {

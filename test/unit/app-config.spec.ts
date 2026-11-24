@@ -72,3 +72,34 @@ describe('loadAppConfig — sessão', () => {
     expect(() => load({ SESSION_IDLE_MINUTES: '61', SESSION_ABSOLUTE_MINUTES: '60' })).toThrow(/menor ou igual/);
   });
 });
+
+describe('loadAppConfig — transporte e limite de tentativas', () => {
+  const load = (env: Record<string, string>) => loadAppConfig({ DATABASE_URL: VALID_DB, ...env });
+
+  it('é seguro por padrão e só aceita os dois modos exatos', () => {
+    expect(load({}).cookieTransport).toBe('secure');
+    expect(load({ COOKIE_TRANSPORT: 'local-http' }).cookieTransport).toBe('local-http');
+    for (const value of ['', 'http', 'LOCAL-HTTP', ' secure', 'false']) {
+      expect(() => load({ COOKIE_TRANSPORT: value })).toThrow(/COOKIE_TRANSPORT/);
+    }
+  });
+
+  it('usa os limites padrão e aceita valores válidos', () => {
+    expect(load({}).loginLimits).toEqual({ maxAttempts: 5, windowMinutes: 15, restrictionSeconds: 30, maxRestrictionSeconds: 900 });
+    expect(load({ LOGIN_MAX_ATTEMPTS: '100', LOGIN_WINDOW_MINUTES: '1', LOGIN_RESTRICTION_SECONDS: '1', LOGIN_MAX_RESTRICTION_SECONDS: '86400' }).loginLimits)
+      .toEqual({ maxAttempts: 100, windowMinutes: 1, restrictionSeconds: 1, maxRestrictionSeconds: 86_400 });
+  });
+
+  it.each([
+    ['LOGIN_MAX_ATTEMPTS', '101'], ['LOGIN_WINDOW_MINUTES', '1441'],
+    ['LOGIN_RESTRICTION_SECONDS', '3601'], ['LOGIN_MAX_RESTRICTION_SECONDS', '86401'],
+  ])('%s rejeita 0, texto e acima do máximo', (variable, above) => {
+    for (const value of ['0', '', 'x', '-1', '1.5', above]) {
+      expect(() => load({ [variable]: value })).toThrow(new RegExp(variable));
+    }
+  });
+
+  it('a restrição máxima não pode ser menor que a inicial', () => {
+    expect(() => load({ LOGIN_RESTRICTION_SECONDS: '60', LOGIN_MAX_RESTRICTION_SECONDS: '59' })).toThrow(/maior ou igual/);
+  });
+});

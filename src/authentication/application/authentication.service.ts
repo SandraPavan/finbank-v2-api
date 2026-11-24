@@ -107,7 +107,7 @@ export class AuthenticationService {
 }
 
 /** Alias ou e-mail malformado é recusado como qualquer credencial inválida. */
-function wellFormed<T>(parse: () => T): T {
+export function wellFormed<T>(parse: () => T): T {
   try {
     return parse();
   } catch (error) {

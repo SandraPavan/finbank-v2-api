@@ -142,7 +142,7 @@ describe('arquitetura da autenticação', () => {
     expect(inner.length).toBeGreaterThan(0);
     for (const file of inner) {
       for (const spec of imports(file.text)) {
-        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|^node:|generated|persistence|adapters|express/);
+        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|^node:|generated|persistence|adapters|express|http/);
       }
       if (file.path.startsWith('authentication/domain/')) {
         expect(imports(file.text).join(' '), file.path).not.toMatch(/application/);
@@ -159,7 +159,24 @@ describe('arquitetura da autenticação', () => {
     }
   });
 
-  it('não declara controller', () => {
-    expect(module.some((f) => /@Controller\(|controllers\s*:/.test(f.text))).toBe(false);
+  it('só a pasta http declara controller, que não acessa persistência', () => {
+    const controllers = module.filter((f) => /@Controller\(/.test(f.text));
+    expect(controllers.map((f) => f.path)).toEqual(['authentication/http/authentication.controller.ts']);
+    for (const file of module.filter((f) => f.path.startsWith('authentication/http/'))) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/prisma|generated|persistence/);
+      }
+    }
+  });
+
+  it('as rotas só usam login e troca de senha com limite de tentativas', () => {
+    const controller = module.find((f) => f.path === 'authentication/http/authentication.controller.ts');
+    expect(controller?.text).not.toMatch(/this\.auth\.(login|changePassword)/);
+  });
+
+  it('nenhum módulo habilita CORS', () => {
+    for (const file of files) {
+      expect(file.text, file.path).not.toMatch(/enableCors|cors\s*:/);
+    }
   });
 });
