@@ -23,6 +23,17 @@ export default defineConfig({
           hookTimeout: 120_000,
         },
       },
+      {
+        test: {
+          name: 'contract',
+          include: ['test/contract/**/*.pact.spec.ts'],
+          environment: 'node',
+          globalSetup: ['test/integration/global-setup.ts'],
+          fileParallelism: false,
+          testTimeout: 60_000,
+          hookTimeout: 120_000,
+        },
+      },
     ],
   },
 });

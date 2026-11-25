@@ -20,6 +20,7 @@
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "vitest run --project unit",
     "test:integration": "prisma generate && vitest run --project integration",
+    "test:contract": "prisma generate && env PACT_DO_NOT_TRACK=true SCARF_ANALYTICS=false vitest run --project contract",
     "verify": "npm run audit:prod && npm run lint && npm run typecheck && npm test && npm run build",
     "audit:prod": "npm audit --omit=dev --audit-level=high"
   },
@@ -35,6 +36,7 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@nestjs/testing": "12.4.2",
+    "@pact-foundation/pact": "17.1.4",
     "@testcontainers/postgresql": "12.2.1",
     "@types/node": "24.19.2",
     "eslint": "10.15.0",

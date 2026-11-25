@@ -18,6 +18,7 @@ Estado atual (DEV-001, DEV-003, DEV-005, DEV-006, DEV-010, DEV-011, DEV-012, DEV
 | PostgreSQL (testes e smoke) | imagem `postgres:18.6-alpine` |
 | Testcontainers (`testcontainers`, `@testcontainers/postgresql`) | 12.2.1 |
 | PactumJS (`pactum`) | 3.9.1 |
+| Pact (`@pact-foundation/pact`, só desenvolvimento) | 17.1.4 |
 | ESLint (`eslint`, `@eslint/js`, `typescript-eslint`, `globals`) | 10.15.0, 10.0.1, 8.72.2, 17.14.0 |
 
 Dependências são fixadas com versão exata (`.npmrc`: `save-exact=true`, `engine-strict=true`). Atenção: o dist-tag `latest` do pacote `prisma` aponta para um release candidate da linha 8; sempre instalar com versão explícita. Atualizações exigem verificação de compatibilidade e registro em história.
@@ -36,6 +37,7 @@ npm run test:integration      # integração com PostgreSQL real descartável (r
 npm run prisma:migrate:deploy # aplica migrações pendentes no banco de DATABASE_URL
 npm run prisma:migrate:status # mostra o estado das migrações no banco de DATABASE_URL
 npm run audit:prod            # npm audit --omit=dev --audit-level=high (requer rede)
+npm run test:contract         # verifica o contrato da interface web (Pact) com PostgreSQL real (requer Docker)
 npm run verify                # audit:prod + lint + typecheck + test + build (sem Docker; requer rede)
 ```
 
@@ -108,6 +110,10 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 
   Em todos os cenários verifica que o payload não traz dados sensíveis e que o liveness continua 200.
 - `test/integration/payment-execution/`: atomicidade (com falha real injetada no PostgreSQL), idempotência sequencial e paralela, concorrência (débitos disputando saldo e transferências cruzadas), isolamento entre dois workspaces, imutabilidade e equilíbrio do ledger, estorno (sequencial, paralelo e concorrente com transferências) e restrições do estorno e da conta por SQL direto. `test/integration/reconciliation.spec.ts` cobre a reconciliação, inclusive operações desequilibradas gravadas com as restrições desligadas só no teste, e `test/integration/migration-upgrade.spec.ts` aplica a migração do estorno sobre um banco separado que já tem dados no formato anterior. Cada teste cria seu próprio workspace, porque operações e lançamentos não podem ser apagados.
+
+## Contrato com a interface web (Pact, DEV-021)
+
+`test/contract/` verifica `pacts/finbank-v2-web-finbank-v2-api.json` (cópia versionada do `finbank-v2-web`) contra a aplicação real, com PostgreSQL real e sessões reais. O filtro de requisição troca o cookie e o token de exemplo pelos do contexto preparado. Remover ou renomear campo, ou trocar código de erro que a interface lê, faz a verificação falhar. Mudou o pacto: copie o arquivo da web e rode `npm run test:contract`. O binário nativo vem de dependência opcional, sem install script, e a telemetria do pacote fica desligada; sem suporte à plataforma, só este comando não roda.
 
 ## Health checks (DEV-005)
 
