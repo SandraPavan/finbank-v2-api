@@ -8,9 +8,14 @@ export interface CustomerSummary {
   readonly status: IdentityState;
 }
 
+/** DENIED: sem acesso ou cliente de outro workspace. CONFLICT: desativado ou sem senha cadastrada. */
+export type CredentialIssue = Date | 'DENIED' | 'CONFLICT';
+
 export interface CustomerAdministrationStore {
   /** Clientes do workspace, por criação e identificador, se o vínculo do ator continua ativo. */
   list(access: WorkspaceAccess, page: PageRequest): Promise<CustomerSummary[]>;
+  /** Emite credencial temporária nas mesmas condições. */
+  issueCredential(access: WorkspaceAccess, customerId: string, hash: string, hours: number, correlationId: string): Promise<CredentialIssue>;
   /**
    * Muda o estado e registra auditoria numa transação, reconferindo o acesso do ator.
    * Devolve false se o acesso acabou ou o cliente não é do workspace.

@@ -1,6 +1,7 @@
 // Linha de comando do operador (DEV-019). Sem HTTP; conecta como dono do esquema (DATABASE_URL).
 import { randomUUID } from 'node:crypto';
 import { PrismaOperatorStore } from './administration/adapters/prisma-operator.store.js';
+import { RandomTemporaryCredential } from './administration/adapters/random-temporary-credential.js';
 import { OperatorService } from './administration/application/operator.service.js';
 import { parseCommand, USAGE, UsageError } from './administration/cli/arguments.js';
 import { readPassword } from './administration/cli/password-input.js';
@@ -17,13 +18,18 @@ const EXIT = { failure: 1, usage: 2, conflict: 3 } as const;
 
 async function main(): Promise<void> {
   const command = parseCommand(process.argv.slice(2));
-  const { databaseUrl } = loadAppConfig({ DATABASE_URL: process.env['DATABASE_URL'] });
+  const { databaseUrl, temporaryCredentialHours } = loadAppConfig({
+    DATABASE_URL: process.env['DATABASE_URL'],
+    TEMPORARY_CREDENTIAL_HOURS: process.env['TEMPORARY_CREDENTIAL_HOURS'],
+  });
   const prisma = new PrismaService({ databaseUrl });
   await prisma.onModuleInit();
   try {
     const service = new OperatorService({
       store: new PrismaOperatorStore(prisma.client),
       hasher: new Argon2PasswordHasher(),
+      generator: new RandomTemporaryCredential(),
+      temporaryCredentialHours,
       correlationId: randomUUID(),
     });
     const notice = (text: string): void => void process.stderr.write(text);

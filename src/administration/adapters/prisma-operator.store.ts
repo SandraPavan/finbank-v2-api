@@ -1,9 +1,11 @@
+import { insertAudit } from '../../audit/adapters/insert-audit.js';
+import type { AuditOperation, AuditResource } from '../../audit/domain/audit.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
 import { databaseErrorCode } from '../../persistence/database-errors.js';
 import type { BootstrapOutcome, IdentityState, MembershipState, OperatorStore } from '../application/operator.store.js';
-import type { AuditOperation, AuditResource } from '../domain/audit.js';
 import { AdministrationError } from '../domain/errors.js';
-import { insertAudit, lockFacilitatorChange, type Transaction, TRANSACTION_OPTIONS } from './administration-sql.js';
+import { lockFacilitatorChange, type Transaction, TRANSACTION_OPTIONS } from './administration-sql.js';
+import { issueTemporaryCredential } from './temporary-credential-sql.js';
 
 type Audit = (operation: AuditOperation, resource: AuditResource, resourceId: string, workspaceId: string | null, changed?: boolean) => Promise<void>;
 
@@ -101,6 +103,19 @@ export class PrismaOperatorStore implements OperatorStore {
       }
       await audit(state === 'REVOKED' ? 'MEMBERSHIP_REVOKE' : 'MEMBERSHIP_GRANT', 'MEMBERSHIP', id, workspaceId, changed);
       return changed;
+    });
+  }
+
+  issueFacilitatorCredential(email: string, hash: string, hours: number, correlationId: string): Promise<Date> {
+    return this.transaction(correlationId, async (tx, audit) => {
+      const id = await requireFacilitator(tx, email);
+      await lockFacilitatorChange(tx, id);
+      const expiresAt = (await facilitatorState(tx, id)) === 'ACTIVE' ? await issueTemporaryCredential(tx, id, hash, hours) : null;
+      if (expiresAt === null) {
+        throw new AdministrationError('IDENTITY_STATE');
+      }
+      await audit('PASSWORD_RESET_ISSUE', 'IDENTITY', id, null);
+      return expiresAt;
     });
   }
 

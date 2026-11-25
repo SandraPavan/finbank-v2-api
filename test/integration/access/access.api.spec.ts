@@ -115,7 +115,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(15);
+      expect(routes).toHaveLength(17);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
@@ -311,6 +311,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       'get /api/v1/facilitator/workspaces/{workspaceId}/customers': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/enable': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/disable': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/password-reset': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
     };
     const scoped = Object.entries(OPENAPI_DOCUMENT.paths).flatMap(([path, item]) =>
       path.includes('{workspaceId}') ? Object.keys(item).map((m) => `${m} ${path}`) : [],

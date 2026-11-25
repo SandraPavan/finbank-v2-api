@@ -49,6 +49,8 @@ const login = (operationId: string, summary: string, schema: string) => ({
   },
 });
 
+const RECOVERY: ProblemCode[] = ['PASSWORD_CHANGE_REQUIRED'];
+
 const customerState = (operationId: string, summary: string) => ({
   post: {
     operationId,
@@ -61,7 +63,7 @@ const customerState = (operationId: string, summary: string) => ({
     ],
     responses: {
       200: { description: 'Estado atual; repetir não tem efeito', headers: CORRELATION, content: json('CustomerState') },
-      ...problems(...POST, ...SESSION, 'RESOURCE_NOT_FOUND'),
+      ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
     },
   },
 });
@@ -77,6 +79,7 @@ const fields = (properties: Record<string, unknown>) => ({
 const SESSION_FIELDS = {
   identityId: { type: 'string', format: 'uuid' },
   profile: { type: 'string', enum: ['CUSTOMER', 'FACILITATOR'] },
+  passwordChangeRequired: { type: 'boolean', description: 'Sessão restrita: só permite concluir a recuperação ou sair' },
   workspaceId: { type: ['string', 'null'], format: 'uuid', description: 'Workspace do cliente; null para facilitador' },
   idleExpiresAt: { type: 'string', format: 'date-time' },
   absoluteExpiresAt: { type: 'string', format: 'date-time' },
@@ -157,7 +160,20 @@ export const OPENAPI_DOCUMENT = {
         requestBody: { required: true, content: json('PasswordChange') },
         responses: {
           200: { description: 'Senha trocada; nova sessão no cookie', headers: CORRELATION, content: json('OpenedSession') },
-          ...problems(...POST, ...SESSION, 'AUTH_CURRENT_PASSWORD_INVALID', 'PASSWORD_POLICY_VIOLATION', 'RATE_LIMIT_EXCEEDED'),
+          ...problems(...POST, ...SESSION, ...RECOVERY, 'AUTH_CURRENT_PASSWORD_INVALID', 'PASSWORD_POLICY_VIOLATION', 'RATE_LIMIT_EXCEEDED'),
+        },
+      },
+    },
+    '/api/v1/auth/password/recovery': {
+      post: {
+        operationId: 'completeRecovery',
+        summary: 'Na sessão restrita, define a senha, encerra as sessões e abre uma normal',
+        security: SESSION_SECURITY,
+        parameters: CSRF_PARAMETER,
+        requestBody: { required: true, content: json('PasswordRecovery') },
+        responses: {
+          200: { description: 'Senha definida; nova sessão no cookie', headers: CORRELATION, content: json('OpenedSession') },
+          ...problems(...POST, ...SESSION, 'PASSWORD_POLICY_VIOLATION', 'RATE_LIMIT_EXCEEDED'),
         },
       },
     },
@@ -169,7 +185,7 @@ export const OPENAPI_DOCUMENT = {
         parameters: [{ $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Offset' }],
         responses: {
           200: { description: 'Página, por ordem de criação', headers: CORRELATION, content: json('WorkspacePage') },
-          ...problems(...COMMON, ...SESSION),
+          ...problems(...COMMON, ...SESSION, ...RECOVERY),
         },
       },
     },
@@ -181,7 +197,7 @@ export const OPENAPI_DOCUMENT = {
         parameters: [{ $ref: '#/components/parameters/WorkspaceId' }],
         responses: {
           200: { description: 'Workspace', headers: CORRELATION, content: json('Workspace') },
-          ...problems(...COMMON, ...SESSION, 'RESOURCE_NOT_FOUND'),
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
         },
       },
     },
@@ -197,7 +213,7 @@ export const OPENAPI_DOCUMENT = {
         ],
         responses: {
           200: { description: 'Página, por ordem de criação', headers: CORRELATION, content: json('CustomerPage') },
-          ...problems(...COMMON, ...SESSION, 'RESOURCE_NOT_FOUND'),
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
         },
       },
     },
@@ -209,6 +225,22 @@ export const OPENAPI_DOCUMENT = {
       'enableCustomer',
       'Reativa o cliente, sem restaurar sessões',
     ),
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/password-reset': {
+      post: {
+        operationId: 'resetCustomerPassword',
+        summary: 'Invalida senha e sessões do cliente e emite credencial temporária, mostrada só nesta resposta',
+        security: SESSION_SECURITY,
+        parameters: [
+          { $ref: '#/components/parameters/WorkspaceId' },
+          { $ref: '#/components/parameters/CustomerId' },
+          ...CSRF_PARAMETER,
+        ],
+        responses: {
+          200: { description: 'Emitida; repetir emite outra e revoga esta', headers: CORRELATION, content: json('IssuedCredential') },
+          ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'IDENTITY_STATE_CONFLICT'),
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {
@@ -256,6 +288,12 @@ export const OPENAPI_DOCUMENT = {
       CsrfToken: fields({ csrfToken: CSRF_TOKEN }),
       CustomerLogin: fields({ alias: text, email: text, password: text }),
       FacilitatorLogin: fields({ email: text, password: text }),
+      PasswordRecovery: fields({ newPassword: text }),
+      IssuedCredential: fields({
+        customerId: { type: 'string', format: 'uuid' },
+        temporaryCredential: { type: 'string', pattern: '^([0-9A-HJKMNP-TV-Z]{4}-){4}[0-9A-HJKMNP-TV-Z]{4}$' },
+        expiresAt: { type: 'string', format: 'date-time' },
+      }),
       PasswordChange: fields({ currentPassword: text, newPassword: text }),
       Session: fields(SESSION_FIELDS),
       OpenedSession: fields({ ...SESSION_FIELDS, csrfToken: CSRF_TOKEN }),

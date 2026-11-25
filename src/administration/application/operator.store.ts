@@ -15,5 +15,7 @@ export interface OperatorStore {
   createFacilitator(email: string, hash: string, correlationId: string): Promise<void>;
   createCustomer(alias: string, email: string, hash: string, correlationId: string): Promise<void>;
   setFacilitatorState(email: string, state: IdentityState, correlationId: string): Promise<boolean>;
+  /** Invalida senha e sessões e emite credencial temporária; devolve a expiração. */
+  issueFacilitatorCredential(email: string, hash: string, hours: number, correlationId: string): Promise<Date>;
   setMembership(alias: string, email: string, state: MembershipState, correlationId: string): Promise<boolean>;
 }

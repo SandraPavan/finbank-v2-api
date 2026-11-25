@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Post, Req, Res, UseFilters } from '@ne
 import { AuthenticationAccess } from '../../http/access-policy.js';
 import { parseNoBody, parseTextFields } from '../../http/body.js';
 import type { HttpRequest, HttpResponse } from '../../http/http-types.js';
-import { ProblemError } from '../../http/problem.js';
+import { correlationIdOf, ProblemError } from '../../http/problem.js';
 import { AuthenticationService } from '../application/authentication.service.js';
 import { LimitedAuthenticationService } from '../application/limited-authentication.service.js';
 import { RandomSessionSecrets } from '../adapters/random-session-secrets.js';
@@ -16,6 +16,7 @@ interface SessionView {
   readonly identityId: string;
   readonly profile: string;
   readonly workspaceId: string | null;
+  readonly passwordChangeRequired: boolean;
   readonly idleExpiresAt: string;
   readonly absoluteExpiresAt: string;
 }
@@ -27,6 +28,7 @@ function view(session: ActiveSession): SessionView {
     identityId: session.identityId,
     profile: session.profile,
     workspaceId: session.workspaceId,
+    passwordChangeRequired: session.scope !== 'NORMAL',
     idleExpiresAt: session.idleExpiresAt.toISOString(),
     absoluteExpiresAt: session.absoluteExpiresAt.toISOString(),
   };
@@ -64,7 +66,7 @@ export class AuthenticationController {
   ): Promise<OpenedView> {
     return this.login(request, response, () => {
       const input = parseTextFields(body, ['alias', 'email', 'password']);
-      return this.limited.loginCustomer(input);
+      return this.limited.loginCustomer(input, correlationIdOf(request));
     });
   }
 
@@ -77,13 +79,13 @@ export class AuthenticationController {
   ): Promise<OpenedView> {
     return this.login(request, response, () => {
       const input = parseTextFields(body, ['email', 'password']);
-      return this.limited.loginFacilitator(input);
+      return this.limited.loginFacilitator(input, correlationIdOf(request));
     });
   }
 
   @Get('me')
   async me(@Req() request: HttpRequest): Promise<SessionView> {
-    const { session } = await this.context.required(this.context.read(request));
+    const { session } = await this.context.requiredAnyScope(this.context.read(request));
     return view(session);
   }
 
@@ -116,7 +118,7 @@ export class AuthenticationController {
     @Body() body: unknown,
     @Res({ passthrough: true }) response: HttpResponse,
   ): Promise<void> {
-    const { secret } = await this.context.required(this.context.read(request));
+    const { secret } = await this.context.requiredAnyScope(this.context.read(request));
     this.context.requireCsrf(request, secret);
     parseNoBody(body);
     await this.auth.logoutAll(secret);
@@ -135,7 +137,7 @@ export class AuthenticationController {
     const input = parseTextFields(body, ['currentPassword', 'newPassword']);
     let opened: OpenedSession;
     try {
-      opened = await this.limited.changePassword(session, secret, input.currentPassword, input.newPassword);
+      opened = await this.limited.changePassword(session, secret, input.currentPassword, input.newPassword, correlationIdOf(request));
     } catch (error) {
       // A sessão continua válida: 401 levaria o cliente a descartá-la.
       if (error instanceof AuthenticationError && error.code === 'INVALID_CREDENTIALS') {
@@ -144,6 +146,23 @@ export class AuthenticationController {
       throw error;
     }
     return this.enter(response, opened);
+  }
+
+  /** Única forma de sair da sessão restrita com acesso: define a senha e abre sessão normal. */
+  @Post('password/recovery')
+  @HttpCode(200)
+  async completeRecovery(
+    @Req() request: HttpRequest,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: HttpResponse,
+  ): Promise<OpenedView> {
+    const { secret, session } = await this.context.requiredAnyScope(this.context.read(request));
+    if (session.scope !== 'PASSWORD_CHANGE') {
+      throw new ProblemError('ACCESS_DENIED');
+    }
+    this.context.requireCsrf(request, secret);
+    const input = parseTextFields(body, ['newPassword']);
+    return this.enter(response, await this.limited.completeRecovery(session, secret, input.newPassword, correlationIdOf(request)));
   }
 
   private async login(

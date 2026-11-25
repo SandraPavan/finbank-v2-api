@@ -119,7 +119,7 @@ describe('execução do comando', () => {
       setMembership: vi.fn(() => Promise.resolve(false)),
     };
     const hasher = { hash: vi.fn(() => Promise.resolve('hash')), verify: vi.fn() };
-    const service = new OperatorService({ store: store as unknown as OperatorStore, hasher, correlationId: 'correlacao' });
+    const service = new OperatorService({ store: store as unknown as OperatorStore, hasher, generator: { generate: () => 'x' }, temporaryCredentialHours: 24, correlationId: 'correlacao' });
     return { store, hasher, service, password: vi.fn(() => Promise.resolve(PASSWORD)) };
   }
 

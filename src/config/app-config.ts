@@ -29,6 +29,7 @@ export interface AppConfig {
   readonly session: SessionConfig;
   readonly loginLimits: LoginLimitsConfig;
   readonly cookieTransport: CookieTransport;
+  readonly temporaryCredentialHours: number;
 }
 
 export class InvalidConfigError extends Error {
@@ -48,6 +49,7 @@ export function loadAppConfig(env: Readonly<Record<string, string | undefined>>)
     session: parseSession(env),
     loginLimits: parseLoginLimits(env),
     cookieTransport: parseCookieTransport(env['COOKIE_TRANSPORT']),
+    temporaryCredentialHours: parseInteger('TEMPORARY_CREDENTIAL_HOURS', env['TEMPORARY_CREDENTIAL_HOURS'], 24, 168),
   };
 }
 

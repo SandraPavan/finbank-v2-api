@@ -14,7 +14,11 @@ export type AuditOperation =
   | 'MEMBERSHIP_REVOKE'
   | 'CUSTOMER_CREATE'
   | 'CUSTOMER_DISABLE'
-  | 'CUSTOMER_ENABLE';
+  | 'CUSTOMER_ENABLE'
+  | 'PASSWORD_RESET_ISSUE'
+  | 'TEMPORARY_CREDENTIAL_CONSUME'
+  | 'PASSWORD_RECOVERY_COMPLETE'
+  | 'PASSWORD_CHANGE';
 
 /** Em vínculos, o recurso é a identidade do facilitador; o workspace completa o par. */
 export type AuditResource = 'WORKSPACE' | 'IDENTITY' | 'MEMBERSHIP';

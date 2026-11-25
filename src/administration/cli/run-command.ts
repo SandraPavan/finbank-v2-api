@@ -3,7 +3,7 @@ import type { Command } from './arguments.js';
 
 const changedOr = (changed: boolean, text: string): string => (changed ? text : 'sem mudança: já estava assim');
 
-/** Executa o comando e devolve a mensagem de sucesso, sem dados pessoais. */
+/** Executa o comando e devolve a mensagem de sucesso, sem dados pessoais. Só a emissão mostra a credencial, uma vez. */
 export async function runCommand(service: OperatorService, command: Command, password: PasswordSource): Promise<string> {
   const { alias, email } = command;
   switch (command.name) {
@@ -25,6 +25,10 @@ export async function runCommand(service: OperatorService, command: Command, pas
       return changedOr(await service.setFacilitatorState(email, 'DISABLED'), 'facilitador desativado e sessões encerradas');
     case 'facilitator enable':
       return changedOr(await service.setFacilitatorState(email, 'ACTIVE'), 'facilitador reativado');
+    case 'facilitator reset': {
+      const issued = await service.resetFacilitator(email);
+      return `credencial temporária (mostrada só agora): ${issued.temporaryCredential}\nválida até ${issued.expiresAt.toISOString()}; a senha e as sessões anteriores deixaram de valer`;
+    }
     case 'membership grant':
       return changedOr(await service.setMembership(alias, email, 'ACTIVE'), 'vínculo ativo');
     case 'membership revoke':

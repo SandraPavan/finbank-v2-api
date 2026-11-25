@@ -45,12 +45,14 @@ describe('migrações Prisma em banco descartável', () => {
         'enum MembershipRole',
         'enum MembershipStatus',
         'enum OperationType',
+        'enum SessionScope',
         'model Account',
         'model AuditRecord',
         'model AuthenticationControl',
         'model LedgerEntry',
         'model PasswordCredential',
         'model PaymentOperation',
+        'model TemporaryCredential',
         'model UserIdentity',
         'model UserSession',
         'model Workspace',
@@ -72,6 +74,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261125000000_password_session', finished: true },
       { migration_name: '20261126000000_authentication_control', finished: true },
       { migration_name: '20261127000000_administration', finished: true },
+      { migration_name: '20261128000000_temporary_credential', finished: true },
     ]);
   });
 
@@ -80,7 +83,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(9);
+    expect(rows[0]?.total).toBe(10);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -107,6 +110,7 @@ describe('migrações Prisma em banco descartável', () => {
       'ledger_entry',
       'password_credential',
       'payment_operation',
+      'temporary_credential',
       'user_identity',
       'user_session',
       'workspace',
@@ -132,6 +136,9 @@ describe('migrações Prisma em banco descartável', () => {
       'payment_operation_fingerprint_format',
       'payment_operation_key_format',
       'payment_operation_reversal_link',
+      'temporary_credential_expiry',
+      'temporary_credential_hash_format',
+      'temporary_credential_single_end',
       'user_identity_email_normalized',
       'user_identity_profile_workspace',
       'user_session_expiry_order',
@@ -153,6 +160,8 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'payment_operation_immutable', deferred: false },
       { tgname: 'payment_operation_no_truncate', deferred: false },
       { tgname: 'payment_operation_reversal_matches', deferred: false },
+      { tgname: 'temporary_credential_facilitator', deferred: false },
+      { tgname: 'temporary_credential_terminal', deferred: false },
       { tgname: 'user_identity_disable_revokes_sessions', deferred: false },
       { tgname: 'user_identity_facilitator_status', deferred: false },
       { tgname: 'user_identity_immutable', deferred: false },

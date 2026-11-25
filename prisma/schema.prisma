@@ -3,6 +3,7 @@
 // DEV-014 e DEV-015: identidades, vínculos com workspaces, e-mail de login e alias.
 // DEV-016: credencial permanente e sessões.
 // DEV-019: auditoria administrativa.
+// DEV-020: credencial temporária e escopo da sessão.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -64,6 +65,13 @@ enum AuditResult {
   UNCHANGED
 
   @@map("audit_result")
+}
+
+enum SessionScope {
+  NORMAL
+  PASSWORD_CHANGE
+
+  @@map("session_scope")
 }
 
 /// Escopo de dados. Não representa identidade nem autorização.
@@ -153,6 +161,7 @@ model UserIdentity {
   memberships WorkspaceMembership[]
 
   credential PasswordCredential?
+  temporary  TemporaryCredential[]
   sessions   UserSession[]
   audit      AuditRecord[]
 
@@ -177,10 +186,12 @@ model WorkspaceMembership {
 
 /// Credencial permanente (Argon2id). Criada fora da execução, que só a atualiza.
 model PasswordCredential {
-  identityId String       @id @map("identity_id") @db.Uuid
-  hash       String       @db.VarChar(160)
-  updatedAt  DateTime     @default(now()) @map("updated_at") @db.Timestamptz(3)
-  identity   UserIdentity @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  identityId    String       @id @map("identity_id") @db.Uuid
+  hash          String       @db.VarChar(160)
+  updatedAt     DateTime     @default(now()) @map("updated_at") @db.Timestamptz(3)
+  /// Preenchido na recuperação: a senha gravada deixa de autenticar.
+  invalidatedAt DateTime?    @map("invalidated_at") @db.Timestamptz(3)
+  identity      UserIdentity @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@map("password_credential")
 }
@@ -195,6 +206,7 @@ model UserSession {
   idleExpiresAt     DateTime     @map("idle_expires_at") @db.Timestamptz(3)
   absoluteExpiresAt DateTime     @map("absolute_expires_at") @db.Timestamptz(3)
   revokedAt         DateTime?    @map("revoked_at") @db.Timestamptz(3)
+  scope             SessionScope
   identity          UserIdentity @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([identityId])
@@ -231,4 +243,19 @@ model AuditRecord {
 
   @@index([workspaceId, occurredAt])
   @@map("audit_record")
+}
+
+/// Credencial de recuperação, de uso único. Estado derivado do prazo, do uso e da revogação.
+model TemporaryCredential {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identityId String       @map("identity_id") @db.Uuid
+  hash       String       @db.VarChar(160)
+  issuedAt   DateTime     @default(dbgenerated("clock_timestamp()")) @map("issued_at") @db.Timestamptz(3)
+  expiresAt  DateTime     @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime?    @map("consumed_at") @db.Timestamptz(3)
+  revokedAt  DateTime?    @map("revoked_at") @db.Timestamptz(3)
+  identity   UserIdentity @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([identityId])
+  @@map("temporary_credential")
 }

@@ -18,7 +18,7 @@ export class AppModule {
       module: AppModule,
       imports: [
         AccessModule.forRoot(authentication),
-        AdministrationModule,
+        AdministrationModule.forRoot(config),
         authentication,
         HealthModule,
         HttpModule,

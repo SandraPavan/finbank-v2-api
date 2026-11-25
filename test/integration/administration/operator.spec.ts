@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { PrismaOperatorStore } from '../../../src/administration/adapters/prisma-operator.store.js';
+import { RandomTemporaryCredential } from '../../../src/administration/adapters/random-temporary-credential.js';
 import { OperatorService } from '../../../src/administration/application/operator.service.js';
 import { Argon2PasswordHasher } from '../../../src/authentication/adapters/argon2-password-hasher.js';
 import { PrismaService } from '../../../src/persistence/prisma.service.js';
@@ -37,7 +38,7 @@ describe('operações do operador (PostgreSQL real)', () => {
   });
 
   function service(prisma: PrismaService, correlationId = `c-${randomUUID()}`): OperatorService {
-    return new OperatorService({ store: new PrismaOperatorStore(prisma.client), hasher: new Argon2PasswordHasher(), correlationId });
+    return new OperatorService({ store: new PrismaOperatorStore(prisma.client), hasher: new Argon2PasswordHasher(), generator: new RandomTemporaryCredential(), temporaryCredentialHours: 24, correlationId });
   }
 
   const facilitator = (email: string) =>
@@ -272,6 +273,19 @@ describe('operações do operador (PostgreSQL real)', () => {
         expect(run.out + run.err).not.toContain(OTHER_PASSWORD);
         expect(run.out + run.err).not.toContain(email);
       }
+    });
+
+    it('facilitator reset mostra a credencial uma vez, só na saída padrão', async () => {
+      const person = await h.facilitator();
+      const run = await cli(['facilitator', 'reset', '--email', person.email]);
+      expect([run.code, run.err]).toEqual([0, '']);
+      const [temporary = ''] = /([0-9A-Z]{4}-){4}[0-9A-Z]{4}/.exec(run.out) ?? [];
+      expect(run.out.split(temporary)).toHaveLength(2);
+      expect((await h.login(person, temporary)).session.scope).toBe('PASSWORD_CHANGE');
+      expect((await cli(['facilitator', 'reset', '--email', newEmail()])).code).toBe(3);
+      await operator.setFacilitatorState(person.email, 'DISABLED');
+      const conflict = await cli(['facilitator', 'reset', '--email', person.email]);
+      expect([conflict.code, conflict.out]).toEqual([3, '']);
     });
 
     it('a senha não fica em claro no banco', async () => {

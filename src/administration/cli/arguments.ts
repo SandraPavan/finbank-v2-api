@@ -13,6 +13,7 @@ const COMMANDS = {
   'facilitator create': ['email'],
   'facilitator disable': ['email'],
   'facilitator enable': ['email'],
+  'facilitator reset': ['email'],
   'membership grant': ['alias', 'email'],
   'membership revoke': ['alias', 'email'],
   'customer create': ['alias', 'email'],

@@ -117,8 +117,8 @@ describe('login e sessões em PostgreSQL real', () => {
         expect(await sqlState(add(hash))).toBe('23514');
       }
       const open = (token: string) => h.app.client.$executeRaw`
-        INSERT INTO "user_session" ("identity_id", "token_hash", "created_at", "last_activity_at", "idle_expires_at", "absolute_expires_at")
-        VALUES (${f.id}::uuid, ${token}, now(), now(), now(), now())`;
+        INSERT INTO "user_session" ("identity_id", "token_hash", "scope", "created_at", "last_activity_at", "idle_expires_at", "absolute_expires_at")
+        VALUES (${f.id}::uuid, ${token}, 'NORMAL', now(), now(), now(), now())`;
       expect(await sqlState(open('segredo-em-claro'))).toBe('23514');
     });
   });

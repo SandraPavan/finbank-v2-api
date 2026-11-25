@@ -16,21 +16,26 @@ export class LimitedAuthenticationService {
     private readonly limiter: AttemptLimiter,
   ) {}
 
-  async loginCustomer(input: { alias: string; email: string; password: string }): Promise<OpenedSession> {
+  async loginCustomer(input: { alias: string; email: string; password: string }, correlationId: string): Promise<OpenedSession> {
     const [alias, email] = wellFormed(() => [parseWorkspaceAlias(input.alias), normalizeEmail(input.email)] as const);
     requirePassword(input.password);
-    return this.limiter.run(subject('customer', alias, email), () => this.auth.loginCustomer(input));
+    return this.limiter.run(subject('customer', alias, email), () => this.auth.loginCustomer(input, correlationId));
   }
 
-  async loginFacilitator(input: { email: string; password: string }): Promise<OpenedSession> {
+  async loginFacilitator(input: { email: string; password: string }, correlationId: string): Promise<OpenedSession> {
     const email = wellFormed(() => normalizeEmail(input.email));
     requirePassword(input.password);
-    return this.limiter.run(subject('facilitator', email), () => this.auth.loginFacilitator(input));
+    return this.limiter.run(subject('facilitator', email), () => this.auth.loginFacilitator(input, correlationId));
   }
 
   /** A sessão já validada identifica o assunto; a própria troca a valida de novo. */
-  changePassword(session: ActiveSession, secret: string, current: string, next: string): Promise<OpenedSession> {
-    return this.limiter.run(subject('password', session.identityId), () => this.auth.changePassword(secret, current, next));
+  changePassword(session: ActiveSession, secret: string, current: string, next: string, correlationId: string): Promise<OpenedSession> {
+    return this.limiter.run(subject('password', session.identityId), () => this.auth.changePassword(secret, current, next, correlationId));
+  }
+
+  /** Não há segredo a adivinhar; a fila limita o custo por identidade. */
+  completeRecovery(session: ActiveSession, secret: string, next: string, correlationId: string): Promise<OpenedSession> {
+    return this.limiter.run(subject('recovery', session.identityId), () => this.auth.completeRecovery(secret, next, correlationId));
   }
 }
 

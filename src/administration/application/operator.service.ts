@@ -2,6 +2,7 @@ import type { PasswordHasher } from '../../authentication/application/ports.js';
 import { parseNewPassword } from '../../authentication/domain/password-policy.js';
 import { normalizeEmail } from '../../identity/domain/email.js';
 import { parseWorkspaceAlias } from '../../identity/domain/workspace-alias.js';
+import type { IssuedCredential, TemporaryCredentialGenerator } from './temporary-credential.js';
 import type { BootstrapOutcome, IdentityState, MembershipState, OperatorStore } from './operator.store.js';
 
 /** Obtém a senha só quando ela é necessária. */
@@ -10,6 +11,8 @@ export type PasswordSource = () => Promise<string>;
 export interface OperatorDependencies {
   readonly store: OperatorStore;
   readonly hasher: PasswordHasher;
+  readonly generator: TemporaryCredentialGenerator;
+  readonly temporaryCredentialHours: number;
   readonly correlationId: string;
 }
 
@@ -47,6 +50,15 @@ export class OperatorService {
   async setMembership(rawAlias: unknown, rawEmail: unknown, state: MembershipState): Promise<boolean> {
     const alias = parseWorkspaceAlias(rawAlias);
     return this.deps.store.setMembership(alias, normalizeEmail(rawEmail), state, this.deps.correlationId);
+  }
+
+  /** Recuperação de facilitador: a credencial devolvida é a única cópia em claro. */
+  async resetFacilitator(rawEmail: unknown): Promise<IssuedCredential> {
+    const { store, generator, hasher, temporaryCredentialHours, correlationId } = this.deps;
+    const email = normalizeEmail(rawEmail);
+    const temporaryCredential = generator.generate();
+    const hash = await hasher.hash(temporaryCredential);
+    return { temporaryCredential, expiresAt: await store.issueFacilitatorCredential(email, hash, temporaryCredentialHours, correlationId) };
   }
 
   private async hash(password: PasswordSource): Promise<string> {

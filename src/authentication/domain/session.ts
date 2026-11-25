@@ -6,6 +6,9 @@ export interface SessionSettings {
   readonly absoluteMinutes: number;
 }
 
+/** PASSWORD_CHANGE: aberta por credencial temporária; só permite concluir a recuperação. */
+export type SessionScope = 'NORMAL' | 'PASSWORD_CHANGE';
+
 /** Sessão ativa. O workspace do cliente vem da identidade (imutável), nunca do alias. */
 export interface ActiveSession {
   readonly sessionId: string;
@@ -13,6 +16,7 @@ export interface ActiveSession {
   readonly profile: WorkspaceRole;
   /** Workspace do cliente; null para facilitador, que informa o workspace em cada operação. */
   readonly workspaceId: string | null;
+  readonly scope: SessionScope;
   readonly idleExpiresAt: Date;
   readonly absoluteExpiresAt: Date;
 }

@@ -5,6 +5,7 @@ export type AdministrationErrorCode =
   | 'NOT_FOUND'
   | 'FACILITATOR_DISABLED'
   | 'MEMBERSHIP_REVOKED'
+  | 'IDENTITY_STATE'
   | 'ADMINISTRATION_FAILED';
 
 const MESSAGES: Record<AdministrationErrorCode, string> = {
@@ -12,6 +13,7 @@ const MESSAGES: Record<AdministrationErrorCode, string> = {
   NOT_FOUND: 'Workspace, identidade ou vínculo não encontrado; nada foi alterado',
   FACILITATOR_DISABLED: 'O facilitador está desativado; nada foi alterado (use facilitator enable)',
   MEMBERSHIP_REVOKED: 'O vínculo está revogado; nada foi alterado (use membership grant)',
+  IDENTITY_STATE: 'A identidade está desativada ou não tem senha cadastrada; nada foi alterado',
   ADMINISTRATION_FAILED: 'Falha na operação; nada foi alterado',
 };
 

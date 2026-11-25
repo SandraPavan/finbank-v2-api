@@ -6,6 +6,8 @@ export type AuthenticationErrorCode =
   | 'SESSION_INVALID'
   | 'SESSION_EXPIRED'
   | 'PASSWORD_POLICY'
+  | 'PASSWORD_CHANGE_REQUIRED'
+  | 'NOT_IN_RECOVERY'
   | 'RATE_LIMITED'
   | 'AUTHENTICATION_FAILED';
 
@@ -14,6 +16,8 @@ const MESSAGES: Record<AuthenticationErrorCode, string> = {
   SESSION_INVALID: 'Sessão inválida',
   SESSION_EXPIRED: 'Sessão expirada',
   PASSWORD_POLICY: 'A senha deve ter de 12 a 128 caracteres',
+  PASSWORD_CHANGE_REQUIRED: 'Conclua a troca de senha',
+  NOT_IN_RECOVERY: 'A sessão não está em recuperação',
   RATE_LIMITED: 'Muitas tentativas; aguarde antes de tentar novamente',
   AUTHENTICATION_FAILED: 'Falha ao processar a autenticação',
 };

@@ -22,6 +22,7 @@ const AFTER = [
   '20261125000000_password_session',
   '20261126000000_authentication_control',
   '20261127000000_administration',
+  '20261128000000_temporary_credential',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';
@@ -87,7 +88,15 @@ describe('migração aditiva sobre dados existentes', () => {
       await tx.$executeRaw`UPDATE "account" SET "balance_cents" = 500 WHERE "id" = ${ACCOUNT}::uuid`;
     });
 
+    const last = '20261128000000_temporary_credential';
     for (const migration of AFTER) {
+      if (migration === last) {
+        await db.$executeRaw`INSERT INTO "user_identity" ("id", "status", "profile", "email") VALUES (${ACCOUNT}::uuid, 'ACTIVE', 'FACILITATOR', 'f@example.test')`;
+        await db.$executeRaw`INSERT INTO "password_credential" ("identity_id", "hash") VALUES (${ACCOUNT}::uuid, ${`$argon2id$v=19$m=19456,t=2,p=1$${'A'.repeat(22)}$${'A'.repeat(43)}`})`;
+        await db.$executeRaw`
+          INSERT INTO "user_session" ("identity_id", "token_hash", "created_at", "last_activity_at", "idle_expires_at", "absolute_expires_at")
+          VALUES (${ACCOUNT}::uuid, ${'a'.repeat(64)}, now(), now(), now() + interval '30 minutes', now() + interval '8 hours')`;
+      }
       await prisma(upgradeUrl, 'db', 'execute', '--file', `prisma/migrations/${migration}/migration.sql`);
     }
 
@@ -95,7 +104,7 @@ describe('migração aditiva sobre dados existentes', () => {
       SELECT "type"::text AS "type", "reverses_operation_id" IS NOT NULL AS "linked" FROM "payment_operation"`;
     expect(rows).toEqual([{ type: 'TRANSFER', linked: false }]);
 
-    // Dados anteriores intactos e nenhuma identidade ou vínculo criado pela migração.
+    // Dados anteriores intactos e senha e sessão anteriores válidas e nenhum vínculo criado pela migração.
     const before = await db.account.findMany({ select: { id: true, balanceCents: true }, orderBy: { balanceCents: 'asc' } });
     expect(before).toEqual([
       { id: CONTRA, balanceCents: -500n },
@@ -103,11 +112,12 @@ describe('migração aditiva sobre dados existentes', () => {
     ]);
     const entries = await db.ledgerEntry.findMany({ select: { amountCents: true }, orderBy: { amountCents: 'asc' } });
     expect(entries.map((e) => e.amountCents)).toEqual([-500n, 500n]);
-    expect(await db.userIdentity.count()).toBe(0);
+    expect(await db.userIdentity.count()).toBe(1);
     expect(await db.workspaceMembership.count()).toBe(0);
-    expect(await db.passwordCredential.count()).toBe(0);
-    expect(await db.userSession.count()).toBe(0);
+    expect(await db.passwordCredential.findMany()).toMatchObject([{ identityId: ACCOUNT, invalidatedAt: null }]);
+    expect(await db.userSession.findMany()).toMatchObject([{ scope: 'NORMAL', revokedAt: null }]);
     expect(await db.auditRecord.count()).toBe(0);
+    expect(await db.temporaryCredential.count()).toBe(0);
 
     // Estorno e reconciliação pelo usuário de execução, com as concessões da migração nova.
     runtime = new PrismaService({ databaseUrl: appUpgradeUrl });

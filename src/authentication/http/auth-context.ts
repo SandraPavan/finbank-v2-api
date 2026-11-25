@@ -48,7 +48,17 @@ export class AuthContext {
     }
   }
 
+  /** Sessão normal. A restrita é recusada por padrão. */
   async required(cookies: ContextCookies): Promise<AuthenticatedContext> {
+    const context = await this.requiredAnyScope(cookies);
+    if (context.session.scope !== 'NORMAL') {
+      throw new ProblemError('PASSWORD_CHANGE_REQUIRED');
+    }
+    return context;
+  }
+
+  /** Somente para as operações permitidas na recuperação. */
+  async requiredAnyScope(cookies: ContextCookies): Promise<AuthenticatedContext> {
     if (cookies.session === undefined) {
       throw new ProblemError('AUTH_SESSION_REQUIRED');
     }

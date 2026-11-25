@@ -7,11 +7,12 @@ import type { HttpRequest } from '../../http/http-types.js';
 import { parsePage } from '../../http/page.js';
 import { correlationIdOf } from '../../http/problem.js';
 import type { WorkspaceAccess } from '../../identity/domain/workspace-access.js';
+import { AdministrationProblemFilter } from './administration-problem.filter.js';
 import { CustomerAdministrationService, type CustomerPage, type CustomerState } from '../application/customer-administration.service.js';
 
 @Controller(`api/v1/facilitator/workspaces/:${WORKSPACE_PARAM}/customers`)
 @FacilitatorWorkspaceAccess()
-@UseFilters(IdentityProblemFilter)
+@UseFilters(IdentityProblemFilter, AdministrationProblemFilter)
 export class FacilitatorCustomersController {
   constructor(private readonly customers: CustomerAdministrationService) {}
 
@@ -42,5 +43,18 @@ export class FacilitatorCustomersController {
   ): Promise<CustomerState> {
     parseNoBody(body);
     return this.customers.setState(access, customerId, 'ACTIVE', correlationIdOf(request));
+  }
+
+  @Post(':customerId/password-reset')
+  @HttpCode(200)
+  async resetPassword(
+    @CurrentWorkspace() access: WorkspaceAccess,
+    @Param('customerId') customerId: unknown,
+    @Body() body: unknown,
+    @Req() request: HttpRequest,
+  ): Promise<{ customerId: string; temporaryCredential: string; expiresAt: string }> {
+    parseNoBody(body);
+    const issued = await this.customers.resetPassword(access, customerId, correlationIdOf(request));
+    return { customerId: issued.customerId, temporaryCredential: issued.temporaryCredential, expiresAt: issued.expiresAt.toISOString() };
   }
 }

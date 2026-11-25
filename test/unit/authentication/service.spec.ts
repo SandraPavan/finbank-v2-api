@@ -6,11 +6,13 @@ import { AuthenticationError } from '../../../src/authentication/domain/errors.j
 const PASSWORD = 'senha correta longa';
 const IDENTITY = '11111111-1111-4111-8111-111111111111';
 
-function setup(credential: { identityId: string; hash: string } | null) {
+function setup(credential: { identityId: string; hash: string; temporaryId: null } | null) {
   const store = {
     findCustomerCredential: vi.fn(() => Promise.resolve(credential)),
     findFacilitatorCredential: vi.fn(() => Promise.resolve(credential)),
     findCredential: vi.fn(() => Promise.resolve(credential)),
+    findConsumedTemporaryHash: vi.fn(() => Promise.resolve(null)),
+    completeRecovery: vi.fn(() => Promise.resolve('SESSION_ENDED' as const)),
     openSession: vi.fn(() => Promise.resolve(null)),
     touchSession: vi.fn(() => Promise.resolve('INVALID' as const)),
     revokeSession: vi.fn(() => Promise.resolve()),
@@ -28,7 +30,7 @@ function setup(credential: { identityId: string; hash: string } | null) {
   return { store, verify, service };
 }
 
-const real = { identityId: IDENTITY, hash: 'real' };
+const real = { identityId: IDENTITY, hash: 'real', temporaryId: null };
 
 describe('login', () => {
   it.each([
