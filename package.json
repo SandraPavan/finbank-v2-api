@@ -16,6 +16,7 @@
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "lint": "prisma generate && eslint . --max-warnings 0",
     "build": "prisma generate && tsc -p tsconfig.build.json",
+    "admin": "node dist/admin.js",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "vitest run --project unit",
     "test:integration": "prisma generate && vitest run --project integration",

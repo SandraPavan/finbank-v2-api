@@ -115,7 +115,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(12);
+      expect(routes).toHaveLength(15);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
@@ -308,6 +308,9 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
     /** Resultado esperado por rota com workspace: [workspace A, workspace B]. Rota nova precisa entrar aqui. */
     const MATRIX: Record<string, Record<Actor, readonly [number, number]>> = {
       'get /api/v1/facilitator/workspaces/{workspaceId}': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'get /api/v1/facilitator/workspaces/{workspaceId}/customers': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/enable': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/disable': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
     };
     const scoped = Object.entries(OPENAPI_DOCUMENT.paths).flatMap(([path, item]) =>
       path.includes('{workspaceId}') ? Object.keys(item).map((m) => `${m} ${path}`) : [],
@@ -323,12 +326,17 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       for (const actor of Object.keys(people) as Actor[]) {
         const browser = await enter(people[actor]);
         for (const [i, target] of [a, b].entries()) {
-          const url = path.replace('/api/v1', '').replace('{workspaceId}', target.workspaceId ?? '');
+          const url = path.replace('/api/v1', '').replace('{workspaceId}', target.workspaceId ?? '').replace('{customerId}', target.id);
           const reply = await browser.api(method.toUpperCase() as 'GET' | 'POST', url);
           expect(reply.status, `${actor} em ${i === 0 ? 'A' : 'B'}`).toBe(expected[actor][i]);
           const own = reply.status === 200;
-          expect(reply.text.includes(target.workspaceId ?? '-')).toBe(own);
-          expect(reply.text.includes(target.alias ?? '-')).toBe(own);
+          const marks = path.includes('customers') ? [target.id] : [target.workspaceId ?? '-', target.alias ?? '-'];
+          for (const mark of marks) {
+            expect(reply.text.includes(mark)).toBe(own);
+          }
+          if (!own) {
+            expect(reply.text).not.toContain(target.email);
+          }
         }
       }
     });

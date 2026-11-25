@@ -21,6 +21,7 @@ const AFTER = [
   '20261124000000_identity_profile',
   '20261125000000_password_session',
   '20261126000000_authentication_control',
+  '20261127000000_administration',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';
@@ -106,6 +107,7 @@ describe('migração aditiva sobre dados existentes', () => {
     expect(await db.workspaceMembership.count()).toBe(0);
     expect(await db.passwordCredential.count()).toBe(0);
     expect(await db.userSession.count()).toBe(0);
+    expect(await db.auditRecord.count()).toBe(0);
 
     // Estorno e reconciliação pelo usuário de execução, com as concessões da migração nova.
     runtime = new PrismaService({ databaseUrl: appUpgradeUrl });

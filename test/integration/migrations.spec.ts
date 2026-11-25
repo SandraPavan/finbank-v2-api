@@ -39,11 +39,14 @@ describe('migrações Prisma em banco descartável', () => {
     expect(declared.sort()).toEqual(
       [
         'enum AccountKind',
+        'enum AuditActorType',
+        'enum AuditResult',
         'enum IdentityStatus',
         'enum MembershipRole',
         'enum MembershipStatus',
         'enum OperationType',
         'model Account',
+        'model AuditRecord',
         'model AuthenticationControl',
         'model LedgerEntry',
         'model PasswordCredential',
@@ -68,6 +71,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261124000000_identity_profile', finished: true },
       { migration_name: '20261125000000_password_session', finished: true },
       { migration_name: '20261126000000_authentication_control', finished: true },
+      { migration_name: '20261127000000_administration', finished: true },
     ]);
   });
 
@@ -76,7 +80,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(8);
+    expect(rows[0]?.total).toBe(9);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -98,6 +102,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(tables.map((t) => t.table_name)).toEqual([
       '_prisma_migrations',
       'account',
+      'audit_record',
       'authentication_control',
       'ledger_entry',
       'password_credential',
@@ -115,6 +120,9 @@ describe('migrações Prisma em banco descartável', () => {
       SELECT conname FROM pg_constraint WHERE contype = 'c' AND connamespace = 'public'::regnamespace ORDER BY conname`;
     expect(checks.map((c) => c.conname)).toEqual([
       'account_standard_non_negative',
+      'audit_record_actor',
+      'audit_record_codes',
+      'audit_record_correlation_format',
       'authentication_control_failures_positive',
       'authentication_control_subject_format',
       'ledger_entry_amount_nonzero',
@@ -136,6 +144,8 @@ describe('migrações Prisma em banco descartável', () => {
       SELECT tgname, tginitdeferred AS deferred FROM pg_trigger WHERE NOT tgisinternal ORDER BY tgname`;
     expect(triggers).toEqual([
       { tgname: 'account_identity_immutable', deferred: false },
+      { tgname: 'audit_record_immutable', deferred: false },
+      { tgname: 'audit_record_no_truncate', deferred: false },
       { tgname: 'ledger_entry_balanced', deferred: true },
       { tgname: 'ledger_entry_immutable', deferred: false },
       { tgname: 'ledger_entry_no_truncate', deferred: false },
@@ -144,6 +154,7 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'payment_operation_no_truncate', deferred: false },
       { tgname: 'payment_operation_reversal_matches', deferred: false },
       { tgname: 'user_identity_disable_revokes_sessions', deferred: false },
+      { tgname: 'user_identity_facilitator_status', deferred: false },
       { tgname: 'user_identity_immutable', deferred: false },
       { tgname: 'user_session_terminal', deferred: false },
       { tgname: 'workspace_id_immutable', deferred: false },

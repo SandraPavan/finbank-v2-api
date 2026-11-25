@@ -196,14 +196,52 @@ describe('arquitetura da autorização', () => {
     }
   });
 
-  it('nenhum outro módulo depende dela, salvo a raiz', () => {
+  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração', () => {
     const users = files.filter((f) => !f.path.startsWith('access/') && imports(f.text).some((s) => /\/access\//.test(s)));
-    expect(users.map((f) => f.path)).toEqual(['app.module.ts']);
+    expect(users.map((f) => f.path).sort()).toEqual(['administration/http/facilitator-customers.controller.ts', 'app.module.ts']);
   });
 
   it('o controller não lê o identificador do caminho', () => {
     const controllers = module.filter((f) => /@Controller\(/.test(f.text));
     expect(controllers).toHaveLength(1);
     expect(controllers[0]?.text).not.toMatch(/@Param\(|@Req\(|\.params/);
+  });
+});
+
+describe('arquitetura da administração', () => {
+  const module = files.filter((f) => f.path.startsWith('administration/'));
+
+  it('domínio e aplicação não importam NestJS, Prisma, HTTP, Node nem infraestrutura', () => {
+    const inner = module.filter((f) => /^administration\/(domain|application)\//.test(f.path));
+    expect(inner.length).toBeGreaterThan(0);
+    for (const file of inner) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|^node:|generated|persistence|adapters|express|http|cli/);
+      }
+    }
+  });
+
+  it('não depende dos módulos financeiros nem dos modos educacionais, e não registra logs', () => {
+    for (const file of module) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/payment-execution|reconciliation|education/);
+      }
+      expect(file.text, file.path).not.toMatch(/console\.|Logger/);
+    }
+  });
+
+  it('as operações do operador só são usadas pela linha de comando', () => {
+    const users = files.filter((f) => imports(f.text).some((s) => /operator\.service|prisma-operator\.store|\/cli\//.test(s)));
+    expect(users.map((f) => f.path).sort()).toEqual(['admin.ts', 'administration/cli/run-command.ts']);
+    expect(files.filter((f) => imports(f.text).some((s) => /\/admin\.js$/.test(s)))).toEqual([]);
+    const cli = files.filter((f) => f.path === 'admin.ts' || f.path.startsWith('administration/cli/'));
+    for (const file of cli) {
+      expect(file.text, file.path).not.toMatch(/@nestjs|NestFactory|listen\(|node:http/);
+    }
+  });
+
+  it('nada fora da linha de comando e da migração cria identidade, credencial, vínculo ou workspace', () => {
+    const writers = files.filter((f) => /INSERT INTO "(user_identity|password_credential|workspace_membership|workspace)"/.test(f.text));
+    expect(writers.map((f) => f.path)).toEqual(['administration/adapters/prisma-operator.store.ts']);
   });
 });

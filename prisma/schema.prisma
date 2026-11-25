@@ -2,6 +2,7 @@
 // DEV-010: núcleo de execução financeira (contas técnicas, operações e ledger).
 // DEV-014 e DEV-015: identidades, vínculos com workspaces, e-mail de login e alias.
 // DEV-016: credencial permanente e sessões.
+// DEV-019: auditoria administrativa.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -51,6 +52,20 @@ enum MembershipStatus {
   @@map("membership_status")
 }
 
+enum AuditActorType {
+  OPERATOR
+  IDENTITY
+
+  @@map("audit_actor_type")
+}
+
+enum AuditResult {
+  CHANGED
+  UNCHANGED
+
+  @@map("audit_result")
+}
+
 /// Escopo de dados. Não representa identidade nem autorização.
 model Workspace {
   id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -61,6 +76,7 @@ model Workspace {
   alias       String?               @unique @db.VarChar(40)
   memberships WorkspaceMembership[]
   customers   UserIdentity[]
+  audit       AuditRecord[]
 
   @@map("workspace")
 }
@@ -138,6 +154,7 @@ model UserIdentity {
 
   credential PasswordCredential?
   sessions   UserSession[]
+  audit      AuditRecord[]
 
   @@unique([id, profile])
   @@map("user_identity")
@@ -194,4 +211,24 @@ model AuthenticationControl {
 
   @@index([expiresAt])
   @@map("authentication_control")
+}
+
+/// Operação administrativa (só inserção). Sem senha, e-mail ou segredo; o operador não tem identidade.
+model AuditRecord {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  occurredAt      DateTime        @default(dbgenerated("clock_timestamp()")) @map("occurred_at") @db.Timestamptz(3)
+  actorType       AuditActorType  @map("actor_type")
+  actorIdentityId String?         @map("actor_identity_id") @db.Uuid
+  actorProfile    MembershipRole? @map("actor_profile")
+  workspaceId     String?         @map("workspace_id") @db.Uuid
+  operation       String          @db.VarChar(40)
+  resourceType    String          @map("resource_type") @db.VarChar(40)
+  resourceId      String          @map("resource_id") @db.Uuid
+  result          AuditResult
+  correlationId   String          @map("correlation_id") @db.VarChar(64)
+  actor           UserIdentity?   @relation(fields: [actorIdentityId, actorProfile], references: [id, profile], onDelete: Restrict, onUpdate: Restrict)
+  workspace       Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([workspaceId, occurredAt])
+  @@map("audit_record")
 }

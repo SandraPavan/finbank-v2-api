@@ -49,6 +49,23 @@ const login = (operationId: string, summary: string, schema: string) => ({
   },
 });
 
+const customerState = (operationId: string, summary: string) => ({
+  post: {
+    operationId,
+    summary,
+    security: SESSION_SECURITY,
+    parameters: [
+      { $ref: '#/components/parameters/WorkspaceId' },
+      { $ref: '#/components/parameters/CustomerId' },
+      ...CSRF_PARAMETER,
+    ],
+    responses: {
+      200: { description: 'Estado atual; repetir não tem efeito', headers: CORRELATION, content: json('CustomerState') },
+      ...problems(...POST, ...SESSION, 'RESOURCE_NOT_FOUND'),
+    },
+  },
+});
+
 const text = { type: 'string' };
 const fields = (properties: Record<string, unknown>) => ({
   type: 'object',
@@ -67,6 +84,10 @@ const SESSION_FIELDS = {
 const WORKSPACE_FIELDS = {
   workspaceId: { type: 'string', format: 'uuid' },
   alias: { type: ['string', 'null'] },
+};
+const CUSTOMER_FIELDS = {
+  customerId: { type: 'string', format: 'uuid' },
+  status: { type: 'string', enum: ['ACTIVE', 'DISABLED'] },
 };
 const CSRF_TOKEN = { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' };
 
@@ -164,6 +185,30 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers': {
+      get: {
+        operationId: 'listWorkspaceCustomers',
+        summary: 'Clientes do workspace',
+        security: SESSION_SECURITY,
+        parameters: [
+          { $ref: '#/components/parameters/WorkspaceId' },
+          { $ref: '#/components/parameters/Limit' },
+          { $ref: '#/components/parameters/Offset' },
+        ],
+        responses: {
+          200: { description: 'Página, por ordem de criação', headers: CORRELATION, content: json('CustomerPage') },
+          ...problems(...COMMON, ...SESSION, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+    },
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/disable': customerState(
+      'disableCustomer',
+      'Desativa o cliente e encerra as sessões dele',
+    ),
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/enable': customerState(
+      'enableCustomer',
+      'Reativa o cliente, sem restaurar sessões',
+    ),
   },
   components: {
     securitySchemes: {
@@ -178,6 +223,13 @@ export const OPENAPI_DOCUMENT = {
         in: 'path',
         required: true,
         description: 'Sem vínculo, inexistente ou malformado: o mesmo 404',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      CustomerId: {
+        name: 'customerId',
+        in: 'path',
+        required: true,
+        description: 'De outro workspace, inexistente ou malformado: o mesmo 404',
         schema: { type: 'string', format: 'uuid' },
       },
       Limit: {
@@ -212,6 +264,11 @@ export const OPENAPI_DOCUMENT = {
         items: { type: 'array', items: fields(WORKSPACE_FIELDS) },
         nextOffset: { type: ['integer', 'null'], description: 'Início da próxima página; null na última' },
       }),
+      CustomerPage: fields({
+        items: { type: 'array', items: fields({ ...CUSTOMER_FIELDS, email: text }) },
+        nextOffset: { type: ['integer', 'null'], description: 'Início da próxima página; null na última' },
+      }),
+      CustomerState: fields(CUSTOMER_FIELDS),
       Problem: {
         type: 'object',
         additionalProperties: false,

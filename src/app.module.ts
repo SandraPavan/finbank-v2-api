@@ -1,5 +1,6 @@
 import { type DynamicModule, Module } from '@nestjs/common';
 import { AccessModule } from './access/access.module.js';
+import { AdministrationModule } from './administration/administration.module.js';
 import { AuthenticationModule } from './authentication/authentication.module.js';
 import type { AppConfig } from './config/app-config.js';
 import { HealthModule } from './health/health.module.js';
@@ -17,6 +18,7 @@ export class AppModule {
       module: AppModule,
       imports: [
         AccessModule.forRoot(authentication),
+        AdministrationModule,
         authentication,
         HealthModule,
         HttpModule,
