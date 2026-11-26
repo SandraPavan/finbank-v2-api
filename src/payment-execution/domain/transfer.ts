@@ -9,11 +9,16 @@ export type AccountKind = (typeof ACCOUNT_KINDS)[number];
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const OPERATION_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 
-const COMMAND_KEYS = ['workspaceId', 'operationKey', 'debitAccountId', 'creditAccountId', 'amountCents'] as const;
+const COMMAND_KEYS = ['workspaceId', 'operationKey', 'debitAccountId', 'creditAccountId', 'amountCents', 'modality'] as const;
+
+/** Origem funcional de uma transferência PIX. Opcional: transferências internas não têm. */
+export const PAYMENT_MODALITIES = ['PIX_KEY', 'PIX_COPY_PASTE', 'PIX_QR_STATIC'] as const;
+export type PaymentModality = (typeof PAYMENT_MODALITIES)[number];
 
 export interface TransferCommand extends Movement {
   readonly workspaceId: string;
   readonly operationKey: string;
+  readonly modality: PaymentModality | null;
 }
 
 /** Movimentação entre duas contas: o que uma operação debita, credita e o valor. */
@@ -69,10 +74,15 @@ export function parseTransferCommand(raw: unknown): TransferCommand {
   const debitAccountId = parseUuid(raw['debitAccountId'], 'debitAccountId');
   const creditAccountId = parseUuid(raw['creditAccountId'], 'creditAccountId');
   const amountCents = parseAmountCents(raw['amountCents']);
+  const rawModality = raw['modality'];
+  if (rawModality !== undefined && !(typeof rawModality === 'string' && (PAYMENT_MODALITIES as readonly string[]).includes(rawModality))) {
+    throw invalidInput('modality', `deve ser ${PAYMENT_MODALITIES.join(', ')}`);
+  }
+  const modality = (rawModality ?? null) as PaymentModality | null;
   if (debitAccountId === creditAccountId) {
     throw new PaymentExecutionError('SAME_ACCOUNT');
   }
-  return Object.freeze({ workspaceId, operationKey, debitAccountId, creditAccountId, amountCents });
+  return Object.freeze({ workspaceId, operationKey, debitAccountId, creditAccountId, amountCents, modality });
 }
 
 /**
@@ -80,12 +90,13 @@ export function parseTransferCommand(raw: unknown): TransferCommand {
  * O workspace e a chave já identificam a operação e por isso não entram no conteúdo.
  */
 export function transferFingerprint(command: TransferCommand): string {
-  const canonical = JSON.stringify({
-    v: 1,
+  const content = {
     debitAccountId: command.debitAccountId,
     creditAccountId: command.creditAccountId,
     amountCents: command.amountCents.toString(10),
-  });
+  };
+  // Sem modalidade, a versão 1 de sempre: operações existentes repetem igual. Com ela, a versão 4.
+  const canonical = JSON.stringify(command.modality === null ? { v: 1, ...content } : { v: 4, ...content, modality: command.modality });
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }
 

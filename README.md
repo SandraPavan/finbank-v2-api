@@ -281,6 +281,15 @@ Os testes ficam em `test/unit/education/`, com catálogo e operações fictício
 - Uma operação rejeitada não é registrada: a mesma chave pode ser usada numa nova tentativa.
 - Fora deste módulo: reconciliação (`src/reconciliation/`), rotas, autenticação e PIX.
 
+## Estados, crédito educacional e modalidade (DEV-024)
+
+- **Estados:** workspace `ACTIVE`/`ARCHIVED` e conta `ACTIVE`/`BLOCKED` (a contrapartida nunca fica bloqueada). Toda movimentação (transferência, estorno, crédito) confere os dois dentro da transação: conta comum bloqueada em qualquer lado dá `ACCOUNT_BLOCKED`; workspace arquivado, `WORKSPACE_ARCHIVED`. Repetir uma operação já executada devolve o resultado original mesmo depois da mudança de estado, porque não movimenta nada.
+- **Concorrência:** a movimentação toma a trava consultiva compartilhada `finbank:workspace:<id>` (o arquivamento deve pedir a exclusiva) e lê o estado da conta sob a trava de linha que já usa; bloqueio e arquivamento concorrentes ficam antes ou depois, nunca no meio.
+- **Crédito educacional:** `PaymentExecutionService.credit({ workspaceId, operationKey, accountId, amountCents })` debita a contrapartida do workspace e credita a conta comum, tipo `EDUCATIONAL_CREDIT`, com idempotência própria (impressão digital versão 3). Não é estornável. Limites e autorização ficam com o caso de uso que o chamar. Sem contrapartida: `CONTRA_ACCOUNT_MISSING`; conta não comum: `ACCOUNT_NOT_ELIGIBLE`.
+- **Modalidade:** `modality` opcional na transferência (`PIX_KEY`, `PIX_COPY_PASTE`, `PIX_QR_STATIC`), gravada e comparada pela idempotência (versão 4; sem modalidade, a versão 1 de sempre).
+- **No banco:** lançamento em conta bloqueada ou workspace arquivado é recusado também para o dono; modalidade só em transferência; crédito só da contrapartida para conta comum. A execução não altera estado de conta nem de workspace.
+- **Migração `20261130000000_payment_states_credit`:** aditiva; registros existentes ficam `ACTIVE` e as operações, sem modalidade.
+
 ## Papéis no banco (DEV-012)
 
 - **Dono do esquema:** aplica as migrações e é dono de todos os objetos. Só a migração e a linha de comando do operador o usam.

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { invalidInput, PaymentExecutionError } from './errors.js';
 import { isPlainObject, type Movement, parseOperationKey, parseUuid } from './transfer.js';
 
-export const OPERATION_TYPES = ['TRANSFER', 'REVERSAL'] as const;
-/** TRANSFER é a movimentação original; REVERSAL é o estorno total vinculado a uma TRANSFER. */
+export const OPERATION_TYPES = ['TRANSFER', 'REVERSAL', 'EDUCATIONAL_CREDIT'] as const;
+/** TRANSFER é a movimentação original; REVERSAL, o estorno total de uma TRANSFER; EDUCATIONAL_CREDIT, o crédito educacional. */
 export type OperationType = (typeof OPERATION_TYPES)[number];
 
 const COMMAND_KEYS = ['workspaceId', 'operationKey', 'originalOperationId'] as const;
@@ -42,7 +42,7 @@ export function reversalFingerprint(command: ReversalCommand): string {
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }
 
-/** Movimentação do estorno total: contas invertidas e mesmo valor. Estorno de estorno é proibido. */
+/** Movimentação do estorno total: contas invertidas e mesmo valor. Só TRANSFER é estornável. */
 export function reversalMovement(original: OperationToReverse): Movement {
   if (original.type !== 'TRANSFER') {
     throw new PaymentExecutionError('NOT_REVERSIBLE');

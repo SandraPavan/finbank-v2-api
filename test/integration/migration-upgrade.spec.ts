@@ -24,6 +24,7 @@ const AFTER = [
   '20261127000000_administration',
   '20261128000000_temporary_credential',
   '20261129000000_educational_config',
+  '20261130000000_payment_states_credit',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';
@@ -104,6 +105,9 @@ describe('migração aditiva sobre dados existentes', () => {
     const rows = await db.$queryRaw<{ type: string; linked: boolean }[]>`
       SELECT "type"::text AS "type", "reverses_operation_id" IS NOT NULL AS "linked" FROM "payment_operation"`;
     expect(rows).toEqual([{ type: 'TRANSFER', linked: false }]);
+    expect(await db.paymentOperation.findMany({ select: { modality: true } })).toEqual([{ modality: null }]);
+    expect(await db.account.findMany({ select: { status: true } })).toEqual([{ status: 'ACTIVE' }, { status: 'ACTIVE' }]);
+    expect(await db.workspace.findMany({ select: { status: true } })).toEqual([{ status: 'ACTIVE' }]);
 
     // Dados anteriores intactos e senha e sessão anteriores válidas e nenhum vínculo criado pela migração.
     const before = await db.account.findMany({ select: { id: true, balanceCents: true }, orderBy: { balanceCents: 'asc' } });

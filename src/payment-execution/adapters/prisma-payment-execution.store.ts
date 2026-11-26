@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import { databaseErrorCode } from '../../persistence/database-errors.js';
 import type {
+  AccountStatus,
   AccountView,
   LockedAccount,
   PaymentExecutionStore,
@@ -8,6 +9,7 @@ import type {
   RegisterOperationInput,
   RegisterOperationResult,
   StoredOperation,
+  WorkspaceStatus,
 } from '../application/payment-execution.store.js';
 import { PaymentExecutionError } from '../domain/errors.js';
 import type { AccountKind, LedgerEntryDraft } from '../domain/transfer.js';
@@ -28,6 +30,7 @@ const OPERATION_SELECT = {
   id: true,
   type: true,
   reversesOperationId: true,
+  modality: true,
   fingerprint: true,
   debitAccountId: true,
   creditAccountId: true,
@@ -41,6 +44,7 @@ function toStored(row: OperationRow): StoredOperation {
     operationId: row.id,
     type: row.type,
     reversesOperationId: row.reversesOperationId,
+    modality: row.modality,
     fingerprint: row.fingerprint,
     debitAccountId: row.debitAccountId,
     creditAccountId: row.creditAccountId,
@@ -50,6 +54,20 @@ function toStored(row: OperationRow): StoredOperation {
 
 class PrismaPaymentExecutionTransaction implements PaymentExecutionTransaction {
   constructor(private readonly tx: Tx) {}
+
+  async lockWorkspace(workspaceId: string): Promise<WorkspaceStatus | null> {
+    // Trava consultiva: a execução não precisa de UPDATE no workspace; o arquivamento pede a exclusiva.
+    await this.tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`finbank:workspace:${workspaceId}`}, 0))`;
+    const rows = await this.tx.$queryRaw<{ status: WorkspaceStatus }[]>`
+      SELECT "status"::text AS "status" FROM "workspace" WHERE "id" = ${workspaceId}::uuid`;
+    return rows[0]?.status ?? null;
+  }
+
+  async findContraAccount(workspaceId: string): Promise<string | null> {
+    const rows = await this.tx.$queryRaw<{ id: string }[]>`
+      SELECT "id"::text AS "id" FROM "account" WHERE "workspace_id" = ${workspaceId}::uuid AND "kind" = 'CONTRA'`;
+    return rows[0]?.id ?? null;
+  }
 
   async findOperation(workspaceId: string, operationId: string): Promise<StoredOperation | null> {
     const operation = await this.tx.paymentOperation.findUnique({
@@ -65,10 +83,10 @@ class PrismaPaymentExecutionTransaction implements PaymentExecutionTransaction {
     // e a operação existente é lida pela chave e, não havendo, pela operação de origem.
     const inserted = await this.tx.$queryRaw<{ id: string }[]>`
       INSERT INTO "payment_operation"
-        ("workspace_id", "operation_key", "fingerprint", "type", "reverses_operation_id",
+        ("workspace_id", "operation_key", "fingerprint", "type", "reverses_operation_id", "modality",
          "debit_account_id", "credit_account_id", "amount_cents")
       VALUES (${input.workspaceId}::uuid, ${input.operationKey}, ${input.fingerprint},
-              ${input.type}::"operation_type", ${input.reversesOperationId}::uuid,
+              ${input.type}::"operation_type", ${input.reversesOperationId}::uuid, ${input.modality}::"payment_modality",
               ${input.debitAccountId}::uuid, ${input.creditAccountId}::uuid, ${input.amountCents})
       ON CONFLICT DO NOTHING
       RETURNING "id"::text AS "id"`;
@@ -103,14 +121,14 @@ class PrismaPaymentExecutionTransaction implements PaymentExecutionTransaction {
   async lockAccounts(workspaceId: string, accountIds: readonly string[]): Promise<readonly LockedAccount[]> {
     // FOR NO KEY UPDATE em ordem de id: serializa alterações de saldo sem conflitar com as
     // travas KEY SHARE das chaves estrangeiras, evitando deadlock entre movimentações cruzadas.
-    const rows = await this.tx.$queryRaw<{ id: string; kind: AccountKind; balance_cents: bigint }[]>`
-      SELECT "id"::text AS "id", "kind"::text AS "kind", "balance_cents"
+    const rows = await this.tx.$queryRaw<{ id: string; kind: AccountKind; status: AccountStatus; balance_cents: bigint }[]>`
+      SELECT "id"::text AS "id", "kind"::text AS "kind", "status"::text AS "status", "balance_cents"
         FROM "account"
        WHERE "workspace_id" = ${workspaceId}::uuid
          AND "id" = ANY(${[...accountIds]}::uuid[])
        ORDER BY "id"
          FOR NO KEY UPDATE`;
-    return rows.map((row) => ({ id: row.id, kind: row.kind, balanceCents: row.balance_cents }));
+    return rows.map((row) => ({ id: row.id, kind: row.kind, status: row.status, balanceCents: row.balance_cents }));
   }
 
   async insertEntries(workspaceId: string, operationId: string, entries: readonly LedgerEntryDraft[]): Promise<void> {

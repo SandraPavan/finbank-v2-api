@@ -25,9 +25,16 @@ class FakeStore implements PaymentExecutionStore {
   operations = new Map<string, StoredOperation & { input: RegisterOperationInput }>();
   entries: LedgerEntryDraft[] = [];
   calls: string[] = [];
+  workspaceStatus: 'ACTIVE' | 'ARCHIVED' | null = 'ACTIVE';
+  contra: string | null = null;
 
   transaction<T>(work: (tx: PaymentExecutionTransaction) => Promise<T>): Promise<T> {
     const tx: PaymentExecutionTransaction = {
+      lockWorkspace: () => {
+        this.calls.push('workspace');
+        return Promise.resolve(this.workspaceStatus);
+      },
+      findContraAccount: () => Promise.resolve(this.contra),
       findOperation: (ws, id) => {
         this.calls.push('find');
         const found = [...this.operations.values()].find((op) => op.operationId === id && op.input.workspaceId === ws);
@@ -75,8 +82,8 @@ class FakeStore implements PaymentExecutionStore {
 
 function setup(debitBalance = 1_000n, debitKind: AccountKind = 'STANDARD'): { store: FakeStore; service: PaymentExecutionService } {
   const store = new FakeStore();
-  store.accounts.set(A, { id: A, kind: debitKind, balanceCents: debitBalance });
-  store.accounts.set(B, { id: B, kind: 'STANDARD', balanceCents: 0n });
+  store.accounts.set(A, { id: A, kind: debitKind, status: 'ACTIVE', balanceCents: debitBalance });
+  store.accounts.set(B, { id: B, kind: 'STANDARD', status: 'ACTIVE', balanceCents: 0n });
   return { store, service: new PaymentExecutionService(store) };
 }
 
@@ -110,7 +117,7 @@ describe('PaymentExecutionService.execute', () => {
       amountCents: 300n,
       replayed: false,
     });
-    expect(store.calls).toEqual(['register', 'lock', 'entries', `balance:${A}`, `balance:${B}`]);
+    expect(store.calls).toEqual(['workspace', 'register', 'lock', 'entries', `balance:${A}`, `balance:${B}`]);
     expect(store.accounts.get(A)?.balanceCents).toBe(700n);
     expect(store.accounts.get(B)?.balanceCents).toBe(300n);
     expect(store.entries.reduce((s, e) => s + e.amountCents, 0n)).toBe(0n);
@@ -128,7 +135,7 @@ describe('PaymentExecutionService.execute', () => {
     store.calls = [];
     const again = await service.execute(cmd());
     expect(again).toEqual({ ...first, replayed: true });
-    expect(store.calls).toEqual(['register']);
+    expect(store.calls).toEqual(['workspace', 'register']);
     expect(store.accounts.get(A)?.balanceCents).toBe(700n);
     expect(store.entries).toHaveLength(2);
   });
@@ -204,12 +211,13 @@ describe('PaymentExecutionService.reverse', () => {
       workspaceId: WS,
       type: 'REVERSAL',
       reversesOperationId: opId(1),
+      modality: null,
       debitAccountId: B,
       creditAccountId: A,
       amountCents: 300n,
       replayed: false,
     });
-    expect(store.calls).toEqual(['find', 'register', 'lock', 'entries', `balance:${B}`, `balance:${A}`]);
+    expect(store.calls).toEqual(['find', 'workspace', 'register', 'lock', 'entries', `balance:${B}`, `balance:${A}`]);
     expect(store.accounts.get(A)?.balanceCents).toBe(1_000n);
     expect(store.accounts.get(B)?.balanceCents).toBe(0n);
     expect(store.entries.slice(2)).toEqual([
@@ -223,7 +231,7 @@ describe('PaymentExecutionService.reverse', () => {
     const first = await service.reverse(rev());
     store.calls = [];
     expect(await service.reverse(rev())).toEqual({ ...first, replayed: true });
-    expect(store.calls).toEqual(['find', 'register']);
+    expect(store.calls).toEqual(['find', 'workspace', 'register']);
     expect(store.entries).toHaveLength(4);
   });
 
@@ -271,7 +279,7 @@ describe('PaymentExecutionService.reverse', () => {
 
   it('conta comum a debitar sem saldo é INSUFFICIENT_FUNDS, sem lançamentos', async () => {
     const { store, service } = await transferred();
-    store.accounts.set(B, { id: B, kind: 'STANDARD', balanceCents: 299n });
+    store.accounts.set(B, { id: B, kind: 'STANDARD', status: 'ACTIVE', balanceCents: 299n });
     expect((await rejection(service.reverse(rev()))).code).toBe('INSUFFICIENT_FUNDS');
     expect(store.entries).toHaveLength(2);
     expect(store.accounts.get(A)?.balanceCents).toBe(700n);
@@ -279,8 +287,77 @@ describe('PaymentExecutionService.reverse', () => {
 
   it('crédito acima do limite técnico é AMOUNT_OUT_OF_RANGE', async () => {
     const { store, service } = await transferred();
-    store.accounts.set(A, { id: A, kind: 'STANDARD', balanceCents: MAX_CENTS });
+    store.accounts.set(A, { id: A, kind: 'STANDARD', status: 'ACTIVE', balanceCents: MAX_CENTS });
     expect((await rejection(service.reverse(rev()))).code).toBe('AMOUNT_OUT_OF_RANGE');
     expect(store.entries).toHaveLength(2);
+  });
+});
+
+describe('estados e crédito educacional (lógica de decisão)', () => {
+  const credit = (over: object = {}) => ({ workspaceId: WS, operationKey: 'credito-0001', accountId: B, amountCents: 50n, ...over });
+
+  it('workspace arquivado recusa, sem travar contas nem lançar', async () => {
+    const { store, service } = setup();
+    store.workspaceStatus = 'ARCHIVED';
+    await expect(service.execute(cmd())).rejects.toMatchObject({ code: 'WORKSPACE_ARCHIVED' });
+    expect(store.calls).toEqual(['workspace', 'register']);
+    expect(store.entries).toEqual([]);
+  });
+
+  it('workspace inexistente é conta não encontrada', async () => {
+    const { store, service } = setup();
+    store.workspaceStatus = null;
+    await expect(service.execute(cmd())).rejects.toMatchObject({ code: 'ACCOUNT_NOT_FOUND' });
+  });
+
+  it.each([A, B])('conta bloqueada em qualquer lado recusa sem lançar (%s)', async (id) => {
+    const { store, service } = setup();
+    store.accounts.set(id, { ...store.accounts.get(id)!, status: 'BLOCKED' });
+    await expect(service.execute(cmd())).rejects.toMatchObject({ code: 'ACCOUNT_BLOCKED' });
+    expect(store.entries).toEqual([]);
+  });
+
+  it('repetição é devolvida mesmo com workspace arquivado e conta bloqueada depois', async () => {
+    const { store, service } = setup();
+    const first = await service.execute(cmd());
+    store.workspaceStatus = 'ARCHIVED';
+    store.accounts.set(A, { ...store.accounts.get(A)!, status: 'BLOCKED' });
+    expect(await service.execute(cmd())).toEqual({ ...first, replayed: true });
+  });
+
+  it('crédito: da contrapartida para a conta comum, tipo próprio', async () => {
+    const { store, service } = setup(0n, 'CONTRA');
+    store.contra = A;
+    const result = await service.credit(credit());
+    expect(result).toMatchObject({ type: 'EDUCATIONAL_CREDIT', debitAccountId: A, creditAccountId: B, amountCents: 50n, modality: null, replayed: false });
+    expect(store.accounts.get(B)?.balanceCents).toBe(50n);
+  });
+
+  it('crédito sem contrapartida, para a própria contrapartida ou para conta não comum é recusado', async () => {
+    const none = setup();
+    await expect(none.service.credit(credit())).rejects.toMatchObject({ code: 'CONTRA_ACCOUNT_MISSING' });
+    const self = setup(0n, 'CONTRA');
+    self.store.contra = A;
+    await expect(self.service.credit(credit({ accountId: A }))).rejects.toMatchObject({ code: 'ACCOUNT_NOT_ELIGIBLE' });
+    const odd = setup();
+    odd.store.contra = A;
+    await expect(odd.service.credit(credit())).rejects.toMatchObject({ code: 'ACCOUNT_NOT_ELIGIBLE' });
+    expect(odd.store.entries).toEqual([]);
+  });
+
+  it.each<[string, unknown]>([
+    ['nulo', null], ['campo extra', { extra: 1 }], ['conta inválida', { accountId: 'X' }], ['valor zero', { amountCents: 0n }], ['valor number', { amountCents: 5 }],
+  ])('crédito com comando inválido (%s)', async (label, over) => {
+    const { store, service } = setup(0n, 'CONTRA');
+    store.contra = A;
+    await expect(service.credit(label === 'nulo' ? null : credit(over as object))).rejects.toMatchObject({ code: expect.stringMatching(/INVALID_INPUT|AMOUNT_OUT_OF_RANGE/) as string });
+    expect(store.calls).toEqual([]);
+  });
+
+  it('crédito não é estornável', async () => {
+    const { store, service } = setup(0n, 'CONTRA');
+    store.contra = A;
+    const done = await service.credit(credit());
+    await expect(service.reverse({ workspaceId: WS, operationKey: 'estorno-0001', originalOperationId: done.operationId })).rejects.toMatchObject({ code: 'NOT_REVERSIBLE' });
   });
 });

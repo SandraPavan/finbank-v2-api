@@ -1,5 +1,8 @@
 import type { OperationType } from '../domain/reversal.js';
-import type { AccountKind, LedgerEntryDraft } from '../domain/transfer.js';
+import type { AccountKind, LedgerEntryDraft, PaymentModality } from '../domain/transfer.js';
+
+export type WorkspaceStatus = 'ACTIVE' | 'ARCHIVED';
+export type AccountStatus = 'ACTIVE' | 'BLOCKED';
 
 /** Operação já registrada no workspace. */
 export interface StoredOperation {
@@ -7,6 +10,7 @@ export interface StoredOperation {
   readonly type: OperationType;
   /** Operação estornada (somente REVERSAL). */
   readonly reversesOperationId: string | null;
+  readonly modality: PaymentModality | null;
   readonly fingerprint: string;
   readonly debitAccountId: string;
   readonly creditAccountId: string;
@@ -16,6 +20,7 @@ export interface StoredOperation {
 export interface LockedAccount {
   readonly id: string;
   readonly kind: AccountKind;
+  readonly status: AccountStatus;
   readonly balanceCents: bigint;
 }
 
@@ -32,6 +37,7 @@ export interface RegisterOperationInput {
   readonly fingerprint: string;
   readonly type: OperationType;
   readonly reversesOperationId: string | null;
+  readonly modality: PaymentModality | null;
   readonly debitAccountId: string;
   readonly creditAccountId: string;
   readonly amountCents: bigint;
@@ -51,6 +57,13 @@ export type RegisterOperationResult =
  * o adaptador apenas persiste, trava e traduz erros do banco para erros tipados.
  */
 export interface PaymentExecutionTransaction {
+  /**
+   * Trava compartilhada do workspace (o arquivamento usará a exclusiva) e seu estado atual;
+   * null se o workspace não existe.
+   */
+  lockWorkspace(workspaceId: string): Promise<WorkspaceStatus | null>;
+  /** Conta de contrapartida do workspace, ou null. */
+  findContraAccount(workspaceId: string): Promise<string | null>;
   /** Operação do workspace pelo id; operação de outro workspace não é devolvida. */
   findOperation(workspaceId: string, operationId: string): Promise<StoredOperation | null>;
   /** Registra a operação; chave existente ou estorno já existente não inserem nada. */

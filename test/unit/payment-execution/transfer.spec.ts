@@ -33,7 +33,7 @@ function rejection(fn: () => unknown): PaymentExecutionError {
 describe('parseTransferCommand', () => {
   it('aceita comando válido e devolve objeto congelado', () => {
     const parsed = parseTransferCommand(command());
-    expect(parsed).toEqual(command());
+    expect(parsed).toEqual({ ...command(), modality: null });
     expect(Object.isFrozen(parsed)).toBe(true);
   });
 
@@ -163,5 +163,23 @@ describe('saldos', () => {
   it('crédito respeita o limite técnico', () => {
     expect(balanceAfterCredit(MAX_CENTS - 1n, 1n)).toBe(MAX_CENTS);
     expect(rejection(() => balanceAfterCredit(MAX_CENTS, 1n)).code).toBe('AMOUNT_OUT_OF_RANGE');
+  });
+});
+
+describe('modalidade', () => {
+  it.each(['PIX_KEY', 'PIX_COPY_PASTE', 'PIX_QR_STATIC'] as const)('aceita %s', (modality) => {
+    expect(parseTransferCommand({ ...command(), modality }).modality).toBe(modality);
+  });
+
+  it.each(['pix_key', 'TED', '', null, 1])('recusa %j sem ecoar', (modality) => {
+    expect(() => parseTransferCommand({ ...command(), modality })).toThrow(/modality deve ser PIX_KEY, PIX_COPY_PASTE, PIX_QR_STATIC/);
+  });
+
+  it('sem modalidade mantém a impressão digital de sempre; com ela, outra para cada valor', () => {
+    const plain = parseTransferCommand(command());
+    const prints = new Set(['PIX_KEY', 'PIX_COPY_PASTE', 'PIX_QR_STATIC'].map((m) => transferFingerprint(parseTransferCommand({ ...command(), modality: m }))));
+    expect(prints.size).toBe(3);
+    expect(prints.has(transferFingerprint(plain))).toBe(false);
+    expect(transferFingerprint(plain)).toBe(createHash('sha256').update(JSON.stringify({ v: 1, debitAccountId: plain.debitAccountId, creditAccountId: plain.creditAccountId, amountCents: plain.amountCents.toString(10) })).digest('hex'));
   });
 });

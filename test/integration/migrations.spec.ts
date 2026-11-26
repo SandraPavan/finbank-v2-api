@@ -39,6 +39,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(declared.sort()).toEqual(
       [
         'enum AccountKind',
+        'enum AccountStatus',
         'enum AuditActorType',
         'enum AuditResult',
         'enum EducationalMode',
@@ -47,7 +48,9 @@ describe('migrações Prisma em banco descartável', () => {
         'enum MembershipRole',
         'enum MembershipStatus',
         'enum OperationType',
+        'enum PaymentModality',
         'enum SessionScope',
+        'enum WorkspaceStatus',
         'model Account',
         'model AuditRecord',
         'model AuthenticationControl',
@@ -79,6 +82,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261127000000_administration', finished: true },
       { migration_name: '20261128000000_temporary_credential', finished: true },
       { migration_name: '20261129000000_educational_config', finished: true },
+      { migration_name: '20261130000000_payment_states_credit', finished: true },
     ]);
   });
 
@@ -87,7 +91,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(11);
+    expect(rows[0]?.total).toBe(12);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -128,6 +132,7 @@ describe('migrações Prisma em banco descartável', () => {
     const checks = await db.client.$queryRaw<{ conname: string }[]>`
       SELECT conname FROM pg_constraint WHERE contype = 'c' AND connamespace = 'public'::regnamespace ORDER BY conname`;
     expect(checks.map((c) => c.conname)).toEqual([
+      'account_contra_active',
       'account_standard_non_negative',
       'audit_record_actor',
       'audit_record_codes',
@@ -144,6 +149,7 @@ describe('migrações Prisma em banco descartável', () => {
       'payment_operation_distinct_accounts',
       'payment_operation_fingerprint_format',
       'payment_operation_key_format',
+      'payment_operation_modality_transfer',
       'payment_operation_reversal_link',
       'temporary_credential_expiry',
       'temporary_credential_hash_format',
@@ -164,10 +170,12 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'audit_record_no_truncate', deferred: false },
       { tgname: 'educational_config_revision_immutable', deferred: false },
       { tgname: 'educational_config_revision_no_truncate', deferred: false },
+      { tgname: 'ledger_entry_active_states', deferred: false },
       { tgname: 'ledger_entry_balanced', deferred: true },
       { tgname: 'ledger_entry_immutable', deferred: false },
       { tgname: 'ledger_entry_no_truncate', deferred: false },
       { tgname: 'payment_operation_balanced', deferred: true },
+      { tgname: 'payment_operation_credit_direction', deferred: false },
       { tgname: 'payment_operation_immutable', deferred: false },
       { tgname: 'payment_operation_no_truncate', deferred: false },
       { tgname: 'payment_operation_reversal_matches', deferred: false },

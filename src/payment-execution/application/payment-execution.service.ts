@@ -1,3 +1,4 @@
+import { creditFingerprint, parseCreditCommand } from '../domain/credit.js';
 import { PaymentExecutionError } from '../domain/errors.js';
 import { type OperationType, parseReversalCommand, reversalFingerprint, reversalMovement } from '../domain/reversal.js';
 import {
@@ -5,6 +6,7 @@ import {
   balanceAfterDebit,
   ledgerEntriesFor,
   type Movement,
+  type PaymentModality,
   parseAccountKind,
   parseTransferCommand,
   parseUuid,
@@ -23,6 +25,8 @@ export interface ExecutionResult {
   readonly type: OperationType;
   /** Operação estornada (somente REVERSAL). */
   readonly reversesOperationId: string | null;
+  /** Origem funcional (somente TRANSFER, quando informada). */
+  readonly modality: PaymentModality | null;
   readonly debitAccountId: string;
   readonly creditAccountId: string;
   readonly amountCents: bigint;
@@ -55,11 +59,42 @@ export class PaymentExecutionService {
         fingerprint,
         type: 'TRANSFER',
         reversesOperationId: null,
+        modality: command.modality,
         debitAccountId: command.debitAccountId,
         creditAccountId: command.creditAccountId,
         amountCents: command.amountCents,
       }),
     );
+  }
+
+  /**
+   * Crédito educacional: da contrapartida do workspace para uma conta comum ativa, com idempotência
+   * própria. Limites e autorização ficam com o caso de uso que o chama.
+   */
+  async credit(raw: unknown): Promise<ExecutionResult> {
+    const command = parseCreditCommand(raw);
+    const fingerprint = creditFingerprint(command);
+
+    return this.store.transaction(async (tx) => {
+      const contra = await tx.findContraAccount(command.workspaceId);
+      if (contra === null) {
+        throw new PaymentExecutionError('CONTRA_ACCOUNT_MISSING');
+      }
+      if (contra === command.accountId) {
+        throw new PaymentExecutionError('ACCOUNT_NOT_ELIGIBLE');
+      }
+      return run(tx, {
+        workspaceId: command.workspaceId,
+        operationKey: command.operationKey,
+        fingerprint,
+        type: 'EDUCATIONAL_CREDIT',
+        reversesOperationId: null,
+        modality: null,
+        debitAccountId: contra,
+        creditAccountId: command.accountId,
+        amountCents: command.amountCents,
+      });
+    });
   }
 
   /** Estorno total de uma transferência: nova operação vinculada, contas invertidas, mesmo valor. */
@@ -79,14 +114,19 @@ export class PaymentExecutionService {
         fingerprint,
         type: 'REVERSAL',
         reversesOperationId: original.operationId,
+        modality: null,
         ...movement,
       });
     });
   }
 }
 
-/** Registra a operação e, se for nova, aplica lançamentos e saldos na transação recebida. */
+/**
+ * Registra a operação e, se for nova, aplica lançamentos e saldos na transação recebida.
+ * A repetição é devolvida antes das conferências de estado: não movimenta nada.
+ */
 async function run(tx: PaymentExecutionTransaction, input: RegisterOperationInput): Promise<ExecutionResult> {
+  const workspaceStatus = await tx.lockWorkspace(input.workspaceId);
   const registration = await tx.registerOperation(input);
   if (registration.outcome === 'ALREADY_REVERSED') {
     throw new PaymentExecutionError('ALREADY_REVERSED');
@@ -101,6 +141,7 @@ async function run(tx: PaymentExecutionTransaction, input: RegisterOperationInpu
       workspaceId: input.workspaceId,
       type: existing.type,
       reversesOperationId: existing.reversesOperationId,
+      modality: existing.modality,
       debitAccountId: existing.debitAccountId,
       creditAccountId: existing.creditAccountId,
       amountCents: existing.amountCents,
@@ -108,11 +149,23 @@ async function run(tx: PaymentExecutionTransaction, input: RegisterOperationInpu
     });
   }
 
+  if (workspaceStatus === null) {
+    throw new PaymentExecutionError('ACCOUNT_NOT_FOUND');
+  }
+  if (workspaceStatus !== 'ACTIVE') {
+    throw new PaymentExecutionError('WORKSPACE_ARCHIVED');
+  }
   const locked = await tx.lockAccounts(input.workspaceId, [input.debitAccountId, input.creditAccountId]);
   const debit = locked.find((account) => account.id === input.debitAccountId);
   const credit = locked.find((account) => account.id === input.creditAccountId);
   if (debit === undefined || credit === undefined) {
     throw new PaymentExecutionError('ACCOUNT_NOT_FOUND');
+  }
+  if (debit.status !== 'ACTIVE' || credit.status !== 'ACTIVE') {
+    throw new PaymentExecutionError('ACCOUNT_BLOCKED');
+  }
+  if (input.type === 'EDUCATIONAL_CREDIT' && (debit.kind !== 'CONTRA' || credit.kind !== 'STANDARD')) {
+    throw new PaymentExecutionError('ACCOUNT_NOT_ELIGIBLE');
   }
 
   const debitBalance = balanceAfterDebit(debit.kind, debit.balanceCents, input.amountCents);
@@ -127,6 +180,7 @@ async function run(tx: PaymentExecutionTransaction, input: RegisterOperationInpu
     workspaceId: input.workspaceId,
     type: input.type,
     reversesOperationId: input.reversesOperationId,
+    modality: input.modality,
     debitAccountId: input.debitAccountId,
     creditAccountId: input.creditAccountId,
     amountCents: input.amountCents,
