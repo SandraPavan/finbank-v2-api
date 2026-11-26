@@ -58,6 +58,7 @@ describe('migrações Prisma em banco descartável', () => {
         'model LedgerEntry',
         'model PasswordCredential',
         'model PaymentOperation',
+        'model SimulationClockRevision',
         'model TemporaryCredential',
         'model UserIdentity',
         'model UserSession',
@@ -83,6 +84,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261128000000_temporary_credential', finished: true },
       { migration_name: '20261129000000_educational_config', finished: true },
       { migration_name: '20261130000000_payment_states_credit', finished: true },
+      { migration_name: '20261201000000_simulation_clock', finished: true },
     ]);
   });
 
@@ -91,7 +93,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(12);
+    expect(rows[0]?.total).toBe(13);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -119,6 +121,7 @@ describe('migrações Prisma em banco descartável', () => {
       'ledger_entry',
       'password_credential',
       'payment_operation',
+      'simulation_clock_revision',
       'temporary_credential',
       'user_identity',
       'user_session',
@@ -151,6 +154,8 @@ describe('migrações Prisma em banco descartável', () => {
       'payment_operation_key_format',
       'payment_operation_modality_transfer',
       'payment_operation_reversal_link',
+      'simulation_clock_revision_date_range',
+      'simulation_clock_revision_number',
       'temporary_credential_expiry',
       'temporary_credential_hash_format',
       'temporary_credential_single_end',
@@ -179,6 +184,8 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'payment_operation_immutable', deferred: false },
       { tgname: 'payment_operation_no_truncate', deferred: false },
       { tgname: 'payment_operation_reversal_matches', deferred: false },
+      { tgname: 'simulation_clock_revision_immutable', deferred: false },
+      { tgname: 'simulation_clock_revision_no_truncate', deferred: false },
       { tgname: 'temporary_credential_facilitator', deferred: false },
       { tgname: 'temporary_credential_terminal', deferred: false },
       { tgname: 'user_identity_disable_revokes_sessions', deferred: false },

@@ -10,6 +10,7 @@ import { IdentityModule } from './identity/identity.module.js';
 import { PaymentExecutionModule } from './payment-execution/payment-execution.module.js';
 import { PersistenceModule } from './persistence/persistence.module.js';
 import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
+import { SimulationClockModule } from './simulation-clock/simulation-clock.module.js';
 
 @Module({})
 export class AppModule {
@@ -27,6 +28,7 @@ export class AppModule {
         IdentityModule,
         PaymentExecutionModule,
         ReconciliationModule,
+        SimulationClockModule,
         PersistenceModule.forRoot({ databaseUrl: config.databaseUrl }),
       ],
     };

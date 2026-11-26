@@ -196,9 +196,14 @@ describe('arquitetura da autorização', () => {
     }
   });
 
-  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração e da configuração educacional', () => {
+  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração, da configuração educacional e do relógio', () => {
     const users = files.filter((f) => !f.path.startsWith('access/') && imports(f.text).some((s) => /\/access\//.test(s)));
-    expect(users.map((f) => f.path).sort()).toEqual(['administration/http/facilitator-customers.controller.ts', 'app.module.ts', 'education/http/educational-config.controller.ts']);
+    expect(users.map((f) => f.path).sort()).toEqual([
+      'administration/http/facilitator-customers.controller.ts',
+      'app.module.ts',
+      'education/http/educational-config.controller.ts',
+      'simulation-clock/http/simulation-clock.controller.ts',
+    ]);
   });
 
   it('o controller não lê o identificador do caminho', () => {
@@ -274,5 +279,41 @@ describe('arquitetura dos modos educacionais', () => {
     for (const file of module) {
       expect(imports(file.text).join(' '), file.path).not.toMatch(/payment-execution|reconciliation|administration|authentication/);
     }
+  });
+});
+
+describe('arquitetura do relógio simulado', () => {
+  const module = files.filter((f) => f.path.startsWith('simulation-clock/'));
+
+  it('o domínio é puro e não lê o relógio real nem o fuso do processo', () => {
+    const domain = module.filter((f) => f.path.startsWith('simulation-clock/domain/'));
+    expect(domain.map((f) => f.path)).toEqual(['simulation-clock/domain/business-date.ts']);
+    for (const file of domain) {
+      expect(imports(file.text), file.path).toEqual([]);
+      expect(file.text, file.path).not.toMatch(/new Date|Date\.now|Intl\.|process\.env|console\.|Logger/);
+    }
+  });
+
+  it('a aplicação não importa NestJS, Prisma, HTTP nem adaptadores, e não lê o relógio real', () => {
+    const application = module.filter((f) => f.path.startsWith('simulation-clock/application/'));
+    expect(application.length).toBeGreaterThan(0);
+    for (const file of application) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|^node:|generated|persistence|adapters|http/);
+      }
+      expect(file.text, file.path).not.toMatch(/new Date|Date\.now/);
+    }
+  });
+
+  it('não depende dos módulos financeiros, educacionais ou de autenticação, nem escreve saldos', () => {
+    for (const file of module) {
+      expect(imports(file.text).join(' '), file.path).not.toMatch(/payment-execution|reconciliation|education|administration|authentication/);
+      expect(file.text, file.path).not.toMatch(FINANCIAL_WRITE);
+    }
+  });
+
+  it('autenticação, sessões e credenciais não dependem do relógio simulado', () => {
+    const users = files.filter((f) => !f.path.startsWith('simulation-clock/') && imports(f.text).some((s) => /simulation-clock/.test(s)));
+    expect(users.map((f) => f.path).sort()).toEqual(['app.module.ts', 'http/openapi.ts']);
   });
 });

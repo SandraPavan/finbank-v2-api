@@ -1,5 +1,6 @@
 import { PAGE_DEFAULT_LIMIT, PAGE_MAX_LIMIT, PAGE_MAX_OFFSET } from './page.js';
 import { PROBLEMS, type ProblemCode } from './problem.js';
+import { CLOCK_TIME_ZONE, MAX_BUSINESS_DATE, MIN_BUSINESS_DATE } from '../simulation-clock/domain/business-date.js';
 
 // Contrato de /api/v1, escrito à mão e conferido por testes contra as rotas e respostas reais.
 
@@ -89,6 +90,7 @@ const WORKSPACE_FIELDS = {
   alias: { type: ['string', 'null'] },
 };
 const DEFECT_ID = { type: 'string', pattern: '^d-[0-9a-f]{16}$' };
+const BUSINESS_DATE = { type: 'string', pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' };
 const CUSTOMER_FIELDS = {
   customerId: { type: 'string', format: 'uuid' },
   status: { type: 'string', enum: ['ACTIVE', 'DISABLED'] },
@@ -225,6 +227,29 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/facilitator/workspaces/{workspaceId}/clock': {
+      get: {
+        operationId: 'getSimulationClock',
+        summary: 'Data simulada vigente do workspace',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }],
+        responses: {
+          200: { description: 'Revisão vigente; 0 = data de criação do workspace no fuso do relógio', headers: CORRELATION, content: json('SimulationClock') },
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+      patch: {
+        operationId: 'changeSimulationClock',
+        summary: 'Grava a revisão seguinte; baseRevision deve ser a vigente; a mesma data não grava nada',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }, ...CSRF_PARAMETER],
+        requestBody: { required: true, content: json('SimulationClockChange') },
+        responses: {
+          200: { description: 'Data vigente após a alteração', headers: CORRELATION, content: json('SimulationClock') },
+          ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'CLOCK_CONFLICT', 'WORKSPACE_ARCHIVED', 'CLOCK_DATE_INVALID'),
+        },
+      },
+    },
     '/api/v1/facilitator/workspaces/{workspaceId}/customers': {
       get: {
         operationId: 'listWorkspaceCustomers',
@@ -343,6 +368,16 @@ export const OPENAPI_DOCUMENT = {
           type: 'object',
           description: 'STUDENT: { mode, preset: { kind: NONE | ALL } ou { kind: LAB, code } }. CONTROLLED: { mode, enabledDefectIds? }',
         },
+      }),
+      SimulationClock: fields({
+        workspaceId: { type: 'string', format: 'uuid' },
+        date: BUSINESS_DATE,
+        revision: { type: 'integer', minimum: 0 },
+        timeZone: { type: 'string', enum: [CLOCK_TIME_ZONE], description: 'Fuso de apresentação; a data não sofre conversão' },
+      }),
+      SimulationClockChange: fields({
+        baseRevision: { type: 'integer', minimum: 0 },
+        date: { type: 'string', description: `YYYY-MM-DD entre ${MIN_BUSINESS_DATE} e ${MAX_BUSINESS_DATE}` },
       }),
       CustomerPage: fields({
         items: { type: 'array', items: fields({ ...CUSTOMER_FIELDS, email: text }) },

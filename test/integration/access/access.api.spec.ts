@@ -115,7 +115,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(19);
+      expect(routes).toHaveLength(21);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
@@ -314,6 +314,8 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/password-reset': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/flags': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'patch /api/v1/facilitator/workspaces/{workspaceId}/flags': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'get /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'patch /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
     };
     const scoped = Object.entries(OPENAPI_DOCUMENT.paths).flatMap(([path, item]) =>
       path.includes('{workspaceId}') ? Object.keys(item).map((m) => `${m} ${path}`) : [],
@@ -332,11 +334,12 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           const url = path.replace('/api/v1', '').replace('{workspaceId}', target.workspaceId ?? '').replace('{customerId}', target.id);
           const seen = method === 'patch' ? await browser.api('GET', url) : undefined;
           const base = typeof seen?.body['revision'] === 'number' ? seen.body['revision'] : 0;
-          const body = method === 'patch' ? { baseRevision: base, configuration: { mode: 'STUDENT', preset: { kind: 'NONE' } } } : undefined;
+          const change = path.includes('clock') ? { date: `2030-0${i + 1}-15` } : { configuration: { mode: 'STUDENT', preset: { kind: 'NONE' } } };
+          const body = method === 'patch' ? { baseRevision: base, ...change } : undefined;
           const reply = await browser.api(method.toUpperCase() as 'GET' | 'POST' | 'PATCH', url, body);
           expect(reply.status, `${actor} em ${i === 0 ? 'A' : 'B'}`).toBe(expected[actor][i]);
           const own = reply.status === 200;
-          const marks = path.includes('customers') ? [target.id] : path.includes('flags') ? [target.workspaceId ?? '-'] : [target.workspaceId ?? '-', target.alias ?? '-'];
+          const marks = path.includes('customers') ? [target.id] : /flags|clock/.test(path) ? [target.workspaceId ?? '-'] : [target.workspaceId ?? '-', target.alias ?? '-'];
           for (const mark of marks) {
             expect(reply.text.includes(mark)).toBe(own);
           }

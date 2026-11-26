@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import { databaseErrorCode } from '../../persistence/database-errors.js';
+import { lockWorkspaceUse } from '../../persistence/workspace-locks.js';
 import type {
   AccountStatus,
   AccountView,
@@ -56,8 +57,7 @@ class PrismaPaymentExecutionTransaction implements PaymentExecutionTransaction {
   constructor(private readonly tx: Tx) {}
 
   async lockWorkspace(workspaceId: string): Promise<WorkspaceStatus | null> {
-    // Trava consultiva: a execução não precisa de UPDATE no workspace; o arquivamento pede a exclusiva.
-    await this.tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`finbank:workspace:${workspaceId}`}, 0))`;
+    await lockWorkspaceUse(this.tx, workspaceId);
     const rows = await this.tx.$queryRaw<{ status: WorkspaceStatus }[]>`
       SELECT "status"::text AS "status" FROM "workspace" WHERE "id" = ${workspaceId}::uuid`;
     return rows[0]?.status ?? null;
