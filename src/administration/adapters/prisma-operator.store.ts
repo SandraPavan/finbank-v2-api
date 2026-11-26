@@ -1,6 +1,7 @@
 import { insertAudit } from '../../audit/adapters/insert-audit.js';
 import type { AuditOperation, AuditResource } from '../../audit/domain/audit.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
+import type { WorkspaceModality } from '../../identity/domain/workspace-modality.js';
 import { databaseErrorCode } from '../../persistence/database-errors.js';
 import type { BootstrapOutcome, IdentityState, MembershipState, OperatorStore } from '../application/operator.store.js';
 import { AdministrationError } from '../domain/errors.js';
@@ -20,7 +21,7 @@ export class PrismaOperatorStore implements OperatorStore {
   bootstrap(input: { alias: string; email: string; hash: string | null; correlationId: string }): Promise<BootstrapOutcome> {
     return this.transaction(input.correlationId, async (tx, audit) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('finbank:bootstrap', 0))`;
-      const newWorkspace = await insertWorkspace(tx, input.alias);
+      const newWorkspace = await insertWorkspace(tx, input.alias, 'ISOLATED');
       const workspaceId = newWorkspace ?? (await workspaceOf(tx, input.alias));
       let facilitatorId = input.hash === null ? null : await insertIdentity(tx, 'FACILITATOR', input.email, null, input.hash);
       const facilitatorCreated = facilitatorId !== null;
@@ -53,9 +54,9 @@ export class PrismaOperatorStore implements OperatorStore {
     });
   }
 
-  createWorkspace(alias: string, correlationId: string): Promise<void> {
+  createWorkspace(alias: string, modality: WorkspaceModality, correlationId: string): Promise<void> {
     return this.transaction(correlationId, async (tx, audit) => {
-      const id = created(await insertWorkspace(tx, alias));
+      const id = created(await insertWorkspace(tx, alias, modality));
       await audit('WORKSPACE_CREATE', 'WORKSPACE', id, id);
     });
   }
@@ -147,9 +148,11 @@ function created(id: string | null): string {
   return id;
 }
 
-async function insertWorkspace(tx: Transaction, alias: string): Promise<string | null> {
+/** A modalidade é sempre explícita aqui, sem depender do valor padrão da coluna. */
+async function insertWorkspace(tx: Transaction, alias: string, modality: WorkspaceModality): Promise<string | null> {
   const rows = await tx.$queryRaw<{ id: string }[]>`
-    INSERT INTO "workspace" ("alias") VALUES (${alias}) ON CONFLICT DO NOTHING RETURNING "id"::text AS "id"`;
+    INSERT INTO "workspace" ("alias", "modality") VALUES (${alias}, ${modality}::"workspace_modality")
+    ON CONFLICT DO NOTHING RETURNING "id"::text AS "id"`;
   return rows[0]?.id ?? null;
 }
 

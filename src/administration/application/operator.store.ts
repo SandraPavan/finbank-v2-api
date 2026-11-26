@@ -1,3 +1,5 @@
+import type { WorkspaceModality } from '../../identity/domain/workspace-modality.js';
+
 export type IdentityState = 'ACTIVE' | 'DISABLED';
 export type MembershipState = 'ACTIVE' | 'REVOKED';
 
@@ -11,7 +13,7 @@ export interface BootstrapOutcome {
 export interface OperatorStore {
   facilitatorExists(email: string): Promise<boolean>;
   bootstrap(input: { alias: string; email: string; hash: string | null; correlationId: string }): Promise<BootstrapOutcome>;
-  createWorkspace(alias: string, correlationId: string): Promise<void>;
+  createWorkspace(alias: string, modality: WorkspaceModality, correlationId: string): Promise<void>;
   createFacilitator(email: string, hash: string, correlationId: string): Promise<void>;
   createCustomer(alias: string, email: string, hash: string, correlationId: string): Promise<void>;
   setFacilitatorState(email: string, state: IdentityState, correlationId: string): Promise<boolean>;

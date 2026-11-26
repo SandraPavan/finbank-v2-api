@@ -20,10 +20,12 @@ export type AuditOperation =
   | 'PASSWORD_RECOVERY_COMPLETE'
   | 'PASSWORD_CHANGE'
   | 'EDUCATIONAL_CONFIG_CHANGE'
-  | 'SIMULATION_CLOCK_CHANGE';
+  | 'SIMULATION_CLOCK_CHANGE'
+  | 'ENROLLMENT_CODE_ISSUE'
+  | 'ENROLLMENT_CODE_REVOKE';
 
 /** Em vínculos, o recurso é a identidade do facilitador; o workspace completa o par. */
-export type AuditResource = 'WORKSPACE' | 'IDENTITY' | 'MEMBERSHIP' | 'EDUCATIONAL_CONFIG_REVISION' | 'SIMULATION_CLOCK_REVISION';
+export type AuditResource = 'WORKSPACE' | 'IDENTITY' | 'MEMBERSHIP' | 'EDUCATIONAL_CONFIG_REVISION' | 'SIMULATION_CLOCK_REVISION' | 'ENROLLMENT_CODE_REVISION';
 
 /** Registro de uma operação. Só códigos e identificadores: nunca senha, e-mail ou segredo. */
 export interface AuditEntry {

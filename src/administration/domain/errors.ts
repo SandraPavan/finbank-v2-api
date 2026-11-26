@@ -6,6 +6,7 @@ export type AdministrationErrorCode =
   | 'FACILITATOR_DISABLED'
   | 'MEMBERSHIP_REVOKED'
   | 'IDENTITY_STATE'
+  | 'INVALID_MODALITY'
   | 'ADMINISTRATION_FAILED';
 
 const MESSAGES: Record<AdministrationErrorCode, string> = {
@@ -14,6 +15,7 @@ const MESSAGES: Record<AdministrationErrorCode, string> = {
   FACILITATOR_DISABLED: 'O facilitador está desativado; nada foi alterado (use facilitator enable)',
   MEMBERSHIP_REVOKED: 'O vínculo está revogado; nada foi alterado (use membership grant)',
   IDENTITY_STATE: 'A identidade está desativada ou não tem senha cadastrada; nada foi alterado',
+  INVALID_MODALITY: 'Modalidade inválida: use SHARED ou ISOLATED; nada foi alterado',
   ADMINISTRATION_FAILED: 'Falha na operação; nada foi alterado',
 };
 

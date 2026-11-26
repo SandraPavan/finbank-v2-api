@@ -4,6 +4,7 @@ import { AdministrationModule } from './administration/administration.module.js'
 import { AuthenticationModule } from './authentication/authentication.module.js';
 import type { AppConfig } from './config/app-config.js';
 import { EducationModule } from './education/education.module.js';
+import { EnrollmentModule } from './enrollment/enrollment.module.js';
 import { HealthModule } from './health/health.module.js';
 import { HttpModule } from './http/http.module.js';
 import { IdentityModule } from './identity/identity.module.js';
@@ -22,6 +23,7 @@ export class AppModule {
         AccessModule.forRoot(authentication),
         AdministrationModule.forRoot(config),
         EducationModule.forRoot(config),
+        EnrollmentModule,
         authentication,
         HealthModule,
         HttpModule,

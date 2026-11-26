@@ -50,6 +50,7 @@ describe('migrações Prisma em banco descartável', () => {
         'enum OperationType',
         'enum PaymentModality',
         'enum SessionScope',
+        'enum WorkspaceModality',
         'enum WorkspaceStatus',
         'model Account',
         'model AuditRecord',
@@ -63,6 +64,7 @@ describe('migrações Prisma em banco descartável', () => {
         'model UserIdentity',
         'model UserSession',
         'model Workspace',
+        'model WorkspaceEnrollmentCode',
         'model WorkspaceMembership',
       ].sort(),
     );
@@ -85,6 +87,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261129000000_educational_config', finished: true },
       { migration_name: '20261130000000_payment_states_credit', finished: true },
       { migration_name: '20261201000000_simulation_clock', finished: true },
+      { migration_name: '20261202000000_workspace_modality_enrollment', finished: true },
     ]);
   });
 
@@ -93,7 +96,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(13);
+    expect(rows[0]?.total).toBe(14);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -126,6 +129,7 @@ describe('migrações Prisma em banco descartável', () => {
       'user_identity',
       'user_session',
       'workspace',
+      'workspace_enrollment_code',
       'workspace_membership',
     ]);
   });
@@ -164,6 +168,8 @@ describe('migrações Prisma em banco descartável', () => {
       'user_session_expiry_order',
       'user_session_token_hash_format',
       'workspace_alias_format',
+      'workspace_enrollment_code_hash_format',
+      'workspace_enrollment_code_number',
       'workspace_membership_facilitator_only',
     ]);
 
@@ -192,7 +198,10 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'user_identity_facilitator_status', deferred: false },
       { tgname: 'user_identity_immutable', deferred: false },
       { tgname: 'user_session_terminal', deferred: false },
+      { tgname: 'workspace_enrollment_code_immutable', deferred: false },
+      { tgname: 'workspace_enrollment_code_no_truncate', deferred: false },
       { tgname: 'workspace_id_immutable', deferred: false },
+      { tgname: 'workspace_modality_immutable', deferred: false },
     ]);
 
     const partial = await db.client.$queryRaw<{ indexdef: string }[]>`

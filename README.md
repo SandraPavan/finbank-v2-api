@@ -93,6 +93,7 @@ Copie `.env.example` para `.env` (ignorado pelo Git) e ajuste localmente. Nunca 
 - A migração `20261124000000_identity_profile` acrescenta perfil, e-mail e alias. Se houver identidade ou vínculo cadastrado, ela para sem alterar nada (perfil e e-mail não podem ser deduzidos). Nesse caso o Prisma registra a migração como falha: trate os dados e use `prisma migrate resolve --rolled-back 20261124000000_identity_profile` antes de aplicar de novo.
 - A migração `20261125000000_password_session` é aditiva: cria credenciais e sessões, sem dados iniciais, com as concessões da execução.
 - A migração `20261126000000_authentication_control` é aditiva: cria o contador de tentativas.
+- A migração `20261202000000_workspace_modality_enrollment` é aditiva: acrescenta a modalidade (existentes ficam `ISOLATED`) e cria as revisões do código de inscrição, sem códigos.
 - A migração `20261201000000_simulation_clock` é aditiva: cria as revisões do relógio simulado, só de inserção; nenhum workspace ganha revisão gravada.
 - A migração `20261129000000_educational_config` é aditiva: cria as revisões da configuração educacional, só de inserção.
 - A migração `20261128000000_temporary_credential` é aditiva: cria a credencial temporária, a invalidação da senha e o escopo da sessão; senhas e sessões existentes continuam valendo.
@@ -201,7 +202,9 @@ npm run build
 DATABASE_URL=<url do dono> npm run admin -- bootstrap --alias minha-turma --email facilitador@example.test
 ```
 
-Comandos: `bootstrap`, `workspace create`, `facilitator create|disable|enable|reset`, `membership grant|revoke` e `customer create`. Sem argumentos, mostra o uso.
+Comandos: `bootstrap`, `workspace create --alias <alias> --modality SHARED|ISOLATED`, `facilitator create|disable|enable|reset`, `membership grant|revoke` e `customer create`. Sem argumentos, mostra o uso.
+
+- **Modalidade (DEV-026):** `bootstrap` cria o workspace `ISOLATED` (estudo individual); `workspace create` exige `--modality`. `SHARED` (turma) exige código de inscrição no onboarding. A modalidade é fixa na criação, também no banco (trigger), e é distinta de `FINBANK_ENVIRONMENT`.
 
 - Conecta como dono do esquema, porque a execução não cria identidades, credenciais, vínculos nem workspaces.
 - A senha vem do terminal, sem eco e com confirmação, ou de uma linha da entrada padrão; nunca de argumento ou variável. Saída e erros não trazem senha, e-mail nem SQL.
@@ -214,10 +217,18 @@ Comandos: `bootstrap`, `workspace create`, `facilitator create|disable|enable|re
 | `GET /customers` | `customerId`, `email` e `status`, paginados |
 | `POST /customers/{customerId}/disable` | Desativa e encerra as sessões |
 | `POST /customers/{customerId}/enable` | Reativa, sem restaurar sessões |
+| `POST /enrollment-code` | Gera ou rotaciona o código de inscrição e o devolve só nesta resposta; o anterior deixa de valer |
+| `DELETE /enrollment-code` | Revoga o código vigente; sem vigente, nada muda |
 
 - Repetir devolve o mesmo estado. Cliente de outro workspace, inexistente ou malformado é o mesmo 404. O vínculo é reconferido na transação, com trava consultiva por facilitador.
 - **Só o operador muda o estado de um facilitador**, também no banco (trigger).
 - **Auditoria (`audit_record`):** ator, perfil, workspace, operação, recurso, resultado, instante real e correlação, na mesma transação da mudança; sem ela, a mudança não acontece. Só inserção, inclusive para o dono. Sem senha, e-mail ou segredo. Recusas não são registradas. Quem é dono do banco pode desligar triggers: a auditoria não protege contra o operador.
+
+**Código de inscrição (DEV-026):** controla a participação no onboarding; não é alias, senha nem credencial de acesso.
+
+- Formato `XXXX-XXXX-XXXX` (Crockford, sem I, L, O e U; 60 bits de `node:crypto`). Grava-se só o SHA-256 do código normalizado, em revisões só de inserção (`workspace_enrollment_code`; sem hash = revogado), com auditoria `ENROLLMENT_CODE_ISSUE`/`ENROLLMENT_CODE_REVOKE` na mesma transação, sem o código. Não expira: vale até ser rotacionado ou revogado.
+- `GET /facilitator/workspaces` e `/{workspaceId}` trazem `modality`, `status` e `enrollment` (`active`, `revision`, `required`), nunca o código nem o hash. Workspace arquivado: 409 `WORKSPACE_ARCHIVED` na geração e na revogação.
+- `EnrollmentService.check(workspaceId, código)` devolve `ACCEPTED`, `REQUIRED` ou `INVALID`: aceita minúsculas e ausência de hífens e compara em tempo constante; `SHARED` sem código vigente fica fechado; `ISOLATED` sem código vigente aceita sem código. O limite de tentativas fica com quem chamar (onboarding).
 
 ## Recuperação de acesso (DEV-020)
 
@@ -305,7 +316,7 @@ Os testes ficam em `test/unit/education/`, com catálogo e operações fictício
 
 - **Dono do esquema:** aplica as migrações e é dono de todos os objetos. Só a migração e a linha de comando do operador o usam.
 - **Usuário de execução:** a API conecta com ele (`DATABASE_URL`). É membro de `finbank_runtime`, não é dono de nenhum objeto e não é superusuário nem cria papéis ou bancos.
-- **Privilégios de `finbank_runtime`:** `USAGE` no schema `public`; `SELECT` em `workspace`, `user_identity` e `workspace_membership`; `SELECT` e `INSERT` (sem `id` nem `created_at`) em `educational_config_revision` e `simulation_clock_revision`; `UPDATE` de `status` em `user_identity` (só clientes, por trigger); `INSERT` em `audit_record`, sem leitura e sem escolher identificador ou instante; `SELECT` e `INSERT` em `account`, `payment_operation` e `ledger_entry`; `SELECT` e `UPDATE` de `hash`, `updated_at` e `invalidated_at` em `password_credential`; em `temporary_credential`, `SELECT`, `INSERT` (só para clientes, por trigger) e `UPDATE` de `consumed_at` e `revoked_at`; `SELECT`, `INSERT` e `UPDATE` de `last_activity_at`, `idle_expires_at` e `revoked_at` em `user_session`; `SELECT`, `INSERT`, `DELETE` e `UPDATE` (exceto a chave) em `authentication_control`, única tabela em que pode apagar; em contas, `UPDATE` somente da coluna `account.balance_cents` (o que também habilita a trava de linha do PaymentExecution); nada em `_prisma_migrations`. Desligar triggers, DDL, `TRUNCATE`, alterar ou apagar operações e lançamentos, mudar `id`, `workspace_id` ou `kind` de conta, inserir workspace, criar identidades, mudar outros dados delas, escrever vínculos e mudar `session_replication_role` são recusados com SQLSTATE `42501`.
+- **Privilégios de `finbank_runtime`:** `USAGE` no schema `public`; `SELECT` em `workspace`, `user_identity` e `workspace_membership`; `SELECT` e `INSERT` (sem `id` nem `created_at`) em `educational_config_revision`, `simulation_clock_revision` e `workspace_enrollment_code`; `UPDATE` de `status` em `user_identity` (só clientes, por trigger); `INSERT` em `audit_record`, sem leitura e sem escolher identificador ou instante; `SELECT` e `INSERT` em `account`, `payment_operation` e `ledger_entry`; `SELECT` e `UPDATE` de `hash`, `updated_at` e `invalidated_at` em `password_credential`; em `temporary_credential`, `SELECT`, `INSERT` (só para clientes, por trigger) e `UPDATE` de `consumed_at` e `revoked_at`; `SELECT`, `INSERT` e `UPDATE` de `last_activity_at`, `idle_expires_at` e `revoked_at` em `user_session`; `SELECT`, `INSERT`, `DELETE` e `UPDATE` (exceto a chave) em `authentication_control`, única tabela em que pode apagar; em contas, `UPDATE` somente da coluna `account.balance_cents` (o que também habilita a trava de linha do PaymentExecution); nada em `_prisma_migrations`. Desligar triggers, DDL, `TRUNCATE`, alterar ou apagar operações e lançamentos, mudar `id`, `workspace_id` ou `kind` de conta, inserir workspace, criar identidades, mudar outros dados delas, escrever vínculos e mudar `session_replication_role` são recusados com SQLSTATE `42501`.
 - **Provisionamento:** `scripts/provision-runtime-role.mjs` (sem dependências) roda depois de `prisma migrate deploy`, conectado como dono: valida `RUNTIME_DB_USER` e `RUNTIME_DB_PASSWORD`, calcula o verificador SCRAM-SHA-256 (a senha em texto não vai ao banco) e cria ou atualiza o usuário de forma idempotente. Um papel que já existe só é reaproveitado se não tiver atributos administrativos, não pertencer a nenhum papel além de `finbank_runtime`, não for dono de objetos e não tiver privilégios diretos neste banco; caso contrário, o provisionamento falha sem alterá-lo. O próprio dono também é recusado. O estágio `migrate` da imagem executa os dois passos em sequência.
 - **Testes:** o `global-setup.ts` provisiona o usuário de execução com o mesmo script e fornece duas URLs. Serviços e bootstrap rodam pelo usuário de execução; o dono só prepara e inspeciona dados. `test/integration/runtime-privileges.spec.ts` verifica atributos, a matriz exata no catálogo e as recusas; `runtime-role-provisioning.spec.ts` verifica idempotência, troca de senha e recusas.
 - **Desenvolvimento local:** o `.env` aponta `DATABASE_URL` para o usuário de execução, e o `prisma.config.ts` lê esse arquivo. Para `npm run prisma:migrate:deploy` e para o provisionamento, informe a URL do dono na linha de comando (exemplos no `.env.example`); com a URL de execução, a migração falha por falta de privilégio (`42501`).

@@ -10,7 +10,7 @@ import { OperatorService } from '../../../src/administration/application/operato
 import { Argon2PasswordHasher } from '../../../src/authentication/adapters/argon2-password-hasher.js';
 import { FacilitatorAccess } from '../../../src/http/access-policy.js';
 import { OPENAPI_DOCUMENT } from '../../../src/http/openapi.js';
-import { Browser, call, type Reply, startApp } from '../authentication/http-support.js';
+import { Browser, call, type Method, type Reply, startApp } from '../authentication/http-support.js';
 import { type AuthHarness, authHarness, failure, OTHER_PASSWORD, PASSWORD, type Person } from '../authentication/support.js';
 import { settle, sqlState } from '../payment-execution/support.js';
 import { withAuditFailure, withCommitFailure } from './support.js';
@@ -354,7 +354,7 @@ describe('recuperação de acesso (PactumJS, PostgreSQL real)', () => {
         for (const route of denied) {
           const [method = '', path = ''] = route.split(' ');
           const url = path.replace('/api/v1', '').replace('{workspaceId}', a.workspaceId ?? '').replace('{customerId}', a.id);
-          const reply = await browser.api(method.toUpperCase() as 'GET' | 'POST' | 'PATCH', url, method === 'post' && path.endsWith('change') ? { currentPassword: temporary, newPassword: OTHER_PASSWORD } : undefined);
+          const reply = await browser.api(method.toUpperCase() as Method, url, method === 'post' && path.endsWith('change') ? { currentPassword: temporary, newPassword: OTHER_PASSWORD } : undefined);
           problem(reply, 403, 'PASSWORD_CHANGE_REQUIRED');
         }
         expect((await browser.send('GET', '/csrf')).status).toBe(200);

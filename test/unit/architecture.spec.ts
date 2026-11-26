@@ -196,12 +196,13 @@ describe('arquitetura da autorização', () => {
     }
   });
 
-  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração, da configuração educacional e do relógio', () => {
+  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração, da configuração educacional, da inscrição e do relógio', () => {
     const users = files.filter((f) => !f.path.startsWith('access/') && imports(f.text).some((s) => /\/access\//.test(s)));
     expect(users.map((f) => f.path).sort()).toEqual([
       'administration/http/facilitator-customers.controller.ts',
       'app.module.ts',
       'education/http/educational-config.controller.ts',
+      'enrollment/http/enrollment.controller.ts',
       'simulation-clock/http/simulation-clock.controller.ts',
     ]);
   });
@@ -315,5 +316,43 @@ describe('arquitetura do relógio simulado', () => {
   it('autenticação, sessões e credenciais não dependem do relógio simulado', () => {
     const users = files.filter((f) => !f.path.startsWith('simulation-clock/') && imports(f.text).some((s) => /simulation-clock/.test(s)));
     expect(users.map((f) => f.path).sort()).toEqual(['app.module.ts', 'http/openapi.ts']);
+  });
+});
+
+describe('arquitetura da inscrição', () => {
+  const module = files.filter((f) => f.path.startsWith('enrollment/'));
+
+  it('o domínio só importa a modalidade e o hash e a aleatoriedade do Node', () => {
+    const domain = module.filter((f) => f.path.startsWith('enrollment/domain/'));
+    expect(domain.map((f) => f.path)).toEqual(['enrollment/domain/enrollment-code.ts']);
+    for (const file of domain) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).toMatch(/^node:crypto$|^\.\.\/\.\.\/identity\/domain\/workspace-modality\.js$/);
+      }
+      expect(file.text, file.path).not.toMatch(/Math\.random|console\.|Logger|process\.env/);
+    }
+  });
+
+  it('a aplicação não importa NestJS, Prisma, HTTP, Node nem adaptadores', () => {
+    const application = module.filter((f) => f.path.startsWith('enrollment/application/'));
+    expect(application.length).toBeGreaterThan(0);
+    for (const file of application) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|^node:|generated|persistence|adapters|http/);
+      }
+    }
+  });
+
+  it('não depende dos módulos financeiros, educacionais, de autenticação ou do relógio, nem registra logs', () => {
+    for (const file of module) {
+      expect(imports(file.text).join(' '), file.path).not.toMatch(/payment-execution|reconciliation|education|administration|authentication|simulation-clock/);
+      expect(file.text, file.path).not.toMatch(FINANCIAL_WRITE);
+      expect(file.text, file.path).not.toMatch(/console\.|Logger/);
+    }
+  });
+
+  it('só a raiz o compõe; o adaptador não lê nem devolve o hash fora do próprio workspace', () => {
+    const users = files.filter((f) => !f.path.startsWith('enrollment/') && imports(f.text).some((s) => /\/enrollment\//.test(s)));
+    expect(users.map((f) => f.path)).toEqual(['app.module.ts']);
   });
 });

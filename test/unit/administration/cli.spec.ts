@@ -10,8 +10,10 @@ const PASSWORD = 'senha  com espaços é 12';
 
 describe('argumentos da linha de comando', () => {
   it('aceita exatamente os comandos documentados', () => {
-    expect(parseCommand(['bootstrap', '--alias', 'turma', '--email', 'a@b'])).toEqual({ name: 'bootstrap', alias: 'turma', email: 'a@b' });
-    expect(parseCommand(['workspace', 'create', '--alias=turma'])).toEqual({ name: 'workspace create', alias: 'turma', email: '' });
+    expect(parseCommand(['bootstrap', '--alias', 'turma', '--email', 'a@b'])).toEqual({ name: 'bootstrap', alias: 'turma', email: 'a@b', modality: '' });
+    expect(parseCommand(['bootstrap', '--alias', 'turma', '--email', 'a@b'])).toMatchObject({ modality: '' });
+    expect(parseCommand(['workspace', 'create', '--alias=turma', '--modality=SHARED'])).toEqual({ name: 'workspace create', alias: 'turma', email: '', modality: 'SHARED' });
+    expect(parseCommand(['workspace', 'create', '--modality', 'ISOLATED', '--alias', 'turma'])).toMatchObject({ modality: 'ISOLATED' });
     for (const name of ['facilitator disable', 'facilitator enable', 'facilitator create']) {
       expect(parseCommand([...name.split(' '), '--email', 'a@b']).name).toBe(name);
     }
@@ -20,7 +22,10 @@ describe('argumentos da linha de comando', () => {
   it.each([
     [[]], [['bootstrap']], [['bootstrap', '--alias', 'x']], [['facilitator']], [['facilitator', 'remove', '--email', 'a@b']],
     [['workspace', 'create', '--alias', 'a', '--alias', 'b']], [['workspace', 'create', '--alias', 'a', '--email', 'a@b']],
-    [['workspace', 'create', '--alias']], [['workspace', 'create', 'extra', '--alias', 'a']], [['toString']], [['customer', 'disable', '--email', 'a@b']],
+    [['workspace', 'create', '--alias']], [['workspace', 'create', 'extra', '--alias', 'a']],
+    [['workspace', 'create', '--alias', 'a']], [['workspace', 'create', '--alias', 'a', '--modality', 'shared']], [['workspace', 'create', '--alias', 'a', '--modality', 'PUBLIC']],
+    [['workspace', 'create', '--alias', 'a', '--modality', 'SHARED', '--modality', 'ISOLATED']], [['workspace', 'create', '--alias', 'a', '--modality']],
+    [['bootstrap', '--alias', 'a', '--email', 'a@b', '--modality', 'SHARED']], [['membership', 'grant', '--alias', 'a', '--email', 'a@b', '--modality', 'SHARED']], [['toString']], [['customer', 'disable', '--email', 'a@b']],
     [['facilitator', 'create', '--email', 'a@b', '--password', PASSWORD]], [['facilitator', 'create', '--email', 'a@b', `--password=${PASSWORD}`]],
     [['facilitator', 'create', '--email', 'a@b', '-p', PASSWORD]], [['facilitator', 'create', '--email', 'a@b', PASSWORD]],
   ])('recusa %j sem repetir valores', (args) => {
@@ -116,6 +121,7 @@ describe('execução do comando', () => {
       facilitatorExists: vi.fn(() => Promise.resolve(exists)),
       bootstrap: vi.fn(() => Promise.resolve({ workspaceCreated: true, facilitatorCreated: !exists, membershipCreated: true })),
       createFacilitator: vi.fn(() => Promise.resolve()),
+      createWorkspace: vi.fn(() => Promise.resolve()),
       setMembership: vi.fn(() => Promise.resolve(false)),
     };
     const hasher = { hash: vi.fn(() => Promise.resolve('hash')), verify: vi.fn() };
@@ -125,7 +131,7 @@ describe('execução do comando', () => {
 
   it('bootstrap sobre facilitador existente não pede senha', async () => {
     const s = setup(true);
-    const message = await runCommand(s.service, { name: 'bootstrap', alias: 'turma', email: 'A@B' }, s.password);
+    const message = await runCommand(s.service, { name: 'bootstrap', alias: 'turma', email: 'A@B', modality: '' }, s.password);
     expect(message).toBe('workspace: criado; facilitador: já existia; vínculo: criado');
     expect(s.password).not.toHaveBeenCalled();
     expect(s.store.bootstrap).toHaveBeenCalledWith({ alias: 'turma', email: 'a@b', hash: null, correlationId: 'correlacao' });
@@ -133,8 +139,8 @@ describe('execução do comando', () => {
 
   it('entrada inválida não pede senha nem toca o banco', async () => {
     const s = setup(false);
-    await expect(runCommand(s.service, { name: 'bootstrap', alias: 'X', email: 'a@b' }, s.password)).rejects.toMatchObject({ code: 'INVALID_ALIAS' });
-    await expect(runCommand(s.service, { name: 'facilitator create', alias: '', email: 'x' }, s.password)).rejects.toMatchObject({ code: 'INVALID_EMAIL' });
+    await expect(runCommand(s.service, { name: 'bootstrap', alias: 'X', email: 'a@b', modality: '' }, s.password)).rejects.toMatchObject({ code: 'INVALID_ALIAS' });
+    await expect(runCommand(s.service, { name: 'facilitator create', alias: '', email: 'x', modality: '' }, s.password)).rejects.toMatchObject({ code: 'INVALID_EMAIL' });
     expect(s.password).not.toHaveBeenCalled();
     expect(s.store.facilitatorExists).not.toHaveBeenCalled();
   });
@@ -147,8 +153,18 @@ describe('execução do comando', () => {
     expect(s.store.createFacilitator).not.toHaveBeenCalled();
   });
 
+  it('workspace create grava a modalidade escolhida; inválida falha sem tocar o banco', async () => {
+    const s = setup(false);
+    expect(await runCommand(s.service, { name: 'workspace create', alias: 'turma', email: '', modality: 'SHARED' }, s.password)).toBe('workspace criado (SHARED)');
+    expect(s.store.createWorkspace).toHaveBeenCalledWith('turma', 'SHARED', 'correlacao');
+    for (const modality of ['', 'shared', 'PUBLIC']) {
+      await expect(s.service.createWorkspace('turma', modality)).rejects.toMatchObject({ code: 'INVALID_MODALITY' });
+    }
+    expect(s.store.createWorkspace).toHaveBeenCalledTimes(1);
+  });
+
   it('repetição informa que nada mudou', async () => {
     const s = setup(true);
-    expect(await runCommand(s.service, { name: 'membership revoke', alias: 'turma', email: 'a@b' }, s.password)).toMatch(/sem mudança/);
+    expect(await runCommand(s.service, { name: 'membership revoke', alias: 'turma', email: 'a@b', modality: '' }, s.password)).toMatch(/sem mudança/);
   });
 });

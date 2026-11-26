@@ -9,7 +9,7 @@ import { loadAppConfig } from '../../../src/config/app-config.js';
 import { configureHttp, HTTP_APPLICATION_OPTIONS } from '../../../src/http/configure-http.js';
 import { OPENAPI_DOCUMENT } from '../../../src/http/openapi.js';
 
-export type Method = 'GET' | 'POST' | 'PATCH';
+export type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 export async function startApp(env: Record<string, string> = {}, controllers: Type[] = [], overrides: [unknown, unknown][] = []): Promise<{ app: NestExpressApplication; url: string }> {
   const config = { ...loadAppConfig({ DATABASE_URL: inject('appDatabaseUrl'), ...env }), port: 0 };
@@ -63,7 +63,7 @@ export interface CallOptions {
 }
 
 export async function call(url: string, method: Method, path: string, options: CallOptions = {}): Promise<Reply> {
-  const request = spec()[method === 'GET' ? 'get' : method === 'POST' ? 'post' : 'patch'](`${url}${path}`).withHeaders(options.headers ?? {});
+  const request = spec()[method === 'GET' ? 'get' : method === 'POST' ? 'post' : method === 'PATCH' ? 'patch' : 'delete'](`${url}${path}`).withHeaders(options.headers ?? {});
   if (options.json !== undefined) {
     request.withHeaders('content-type', 'application/json').withBody(JSON.stringify(options.json));
   } else if (options.raw !== undefined) {

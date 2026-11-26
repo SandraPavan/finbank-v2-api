@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { isWorkspaceModality } from '../../identity/domain/workspace-modality.js';
 
 export class UsageError extends Error {
   constructor(message = 'Comando inválido') {
@@ -7,9 +8,12 @@ export class UsageError extends Error {
   }
 }
 
+const OPTIONS = ['alias', 'email', 'modality'] as const;
+type Option = (typeof OPTIONS)[number];
+
 const COMMANDS = {
   bootstrap: ['alias', 'email'],
-  'workspace create': ['alias'],
+  'workspace create': ['alias', 'modality'],
   'facilitator create': ['email'],
   'facilitator disable': ['email'],
   'facilitator enable': ['email'],
@@ -17,7 +21,7 @@ const COMMANDS = {
   'membership grant': ['alias', 'email'],
   'membership revoke': ['alias', 'email'],
   'customer create': ['alias', 'email'],
-} as const satisfies Record<string, readonly ('alias' | 'email')[]>;
+} as const satisfies Record<string, readonly Option[]>;
 
 export type CommandName = keyof typeof COMMANDS;
 
@@ -25,11 +29,14 @@ export interface Command {
   readonly name: CommandName;
   readonly alias: string;
   readonly email: string;
+  /** Só em `workspace create`: SHARED ou ISOLATED. O bootstrap cria ISOLATED. */
+  readonly modality: string;
 }
 
 export const USAGE = [
   'Uso:',
-  ...Object.entries(COMMANDS).map(([name, options]) => `  ${name} ${options.map((o) => `--${o} <${o}>`).join(' ')}`),
+  ...Object.entries(COMMANDS).map(([name, options]) => `  ${name} ${options.map((o) => (o === 'modality' ? '--modality SHARED|ISOLATED' : `--${o} <${o}>`)).join(' ')}`),
+  'O bootstrap cria o workspace como ISOLATED. A modalidade não muda depois da criação.',
   'A senha é pedida no terminal, sem eco, ou lida da entrada padrão (uma linha). Não há opção para informá-la.',
 ].join('\n');
 
@@ -39,7 +46,7 @@ export function parseCommand(args: readonly string[]): Command {
   try {
     parsed = parseArgs({
       args: [...args],
-      options: { alias: { type: 'string', multiple: true }, email: { type: 'string', multiple: true } },
+      options: { alias: { type: 'string', multiple: true }, email: { type: 'string', multiple: true }, modality: { type: 'string', multiple: true } },
       allowPositionals: true,
       strict: true,
     });
@@ -51,10 +58,14 @@ export function parseCommand(args: readonly string[]): Command {
     throw new UsageError();
   }
   const expected: readonly string[] = COMMANDS[name as CommandName];
-  for (const option of ['alias', 'email'] as const) {
+  for (const option of OPTIONS) {
     if ((parsed.values[option]?.length ?? 0) !== (expected.includes(option) ? 1 : 0)) {
       throw new UsageError();
     }
   }
-  return { name: name as CommandName, alias: parsed.values.alias?.[0] ?? '', email: parsed.values.email?.[0] ?? '' };
+  const modality = parsed.values.modality?.[0] ?? '';
+  if (expected.includes('modality') && !isWorkspaceModality(modality)) {
+    throw new UsageError();
+  }
+  return { name: name as CommandName, alias: parsed.values.alias?.[0] ?? '', email: parsed.values.email?.[0] ?? '', modality };
 }

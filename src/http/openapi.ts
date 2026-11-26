@@ -85,9 +85,17 @@ const SESSION_FIELDS = {
   idleExpiresAt: { type: 'string', format: 'date-time' },
   absoluteExpiresAt: { type: 'string', format: 'date-time' },
 };
+const ENROLLMENT_FIELDS = {
+  active: { type: 'boolean', description: 'Há código vigente' },
+  revision: { type: 'integer', minimum: 0, description: '0 = nenhum código jamais gerado' },
+  required: { type: 'boolean', description: 'SHARED: o onboarding exige código' },
+};
 const WORKSPACE_FIELDS = {
   workspaceId: { type: 'string', format: 'uuid' },
   alias: { type: ['string', 'null'] },
+  modality: { type: 'string', enum: ['SHARED', 'ISOLATED'] },
+  status: { type: 'string', enum: ['ACTIVE', 'ARCHIVED'] },
+  enrollment: fields(ENROLLMENT_FIELDS),
 };
 const DEFECT_ID = { type: 'string', pattern: '^d-[0-9a-f]{16}$' };
 const BUSINESS_DATE = { type: 'string', pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' };
@@ -250,6 +258,28 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/facilitator/workspaces/{workspaceId}/enrollment-code': {
+      post: {
+        operationId: 'issueEnrollmentCode',
+        summary: 'Gera ou rotaciona o código de inscrição; o anterior deixa de valer',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }, ...CSRF_PARAMETER],
+        responses: {
+          200: { description: 'Código em claro, mostrado só nesta resposta', headers: CORRELATION, content: json('IssuedEnrollmentCode') },
+          ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED'),
+        },
+      },
+      delete: {
+        operationId: 'revokeEnrollmentCode',
+        summary: 'Revoga o código vigente; sem código vigente, nada muda',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }, ...CSRF_PARAMETER],
+        responses: {
+          200: { description: 'Situação de inscrição, sem código', headers: CORRELATION, content: json('EnrollmentState') },
+          ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED'),
+        },
+      },
+    },
     '/api/v1/facilitator/workspaces/{workspaceId}/customers': {
       get: {
         operationId: 'listWorkspaceCustomers',
@@ -368,6 +398,12 @@ export const OPENAPI_DOCUMENT = {
           type: 'object',
           description: 'STUDENT: { mode, preset: { kind: NONE | ALL } ou { kind: LAB, code } }. CONTROLLED: { mode, enabledDefectIds? }',
         },
+      }),
+      EnrollmentState: fields({ workspaceId: { type: 'string', format: 'uuid' }, ...ENROLLMENT_FIELDS }),
+      IssuedEnrollmentCode: fields({
+        workspaceId: { type: 'string', format: 'uuid' },
+        ...ENROLLMENT_FIELDS,
+        code: { type: 'string', pattern: '^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$' },
       }),
       SimulationClock: fields({
         workspaceId: { type: 'string', format: 'uuid' },

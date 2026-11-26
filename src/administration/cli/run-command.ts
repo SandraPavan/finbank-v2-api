@@ -5,7 +5,7 @@ const changedOr = (changed: boolean, text: string): string => (changed ? text : 
 
 /** Executa o comando e devolve a mensagem de sucesso, sem dados pessoais. Só a emissão mostra a credencial, uma vez. */
 export async function runCommand(service: OperatorService, command: Command, password: PasswordSource): Promise<string> {
-  const { alias, email } = command;
+  const { alias, email, modality } = command;
   switch (command.name) {
     case 'bootstrap': {
       const done = await service.bootstrap(alias, email, password);
@@ -13,8 +13,8 @@ export async function runCommand(service: OperatorService, command: Command, pas
       return `workspace: ${state(done.workspaceCreated)}; facilitador: ${state(done.facilitatorCreated)}; vínculo: ${state(done.membershipCreated)}`;
     }
     case 'workspace create':
-      await service.createWorkspace(alias);
-      return 'workspace criado';
+      await service.createWorkspace(alias, modality);
+      return `workspace criado (${modality})`;
     case 'facilitator create':
       await service.createFacilitator(email, password);
       return 'facilitador criado';

@@ -7,6 +7,7 @@
 // DEV-023: configuração educacional em revisões.
 // DEV-024: estados de workspace e conta, crédito educacional e modalidade.
 // DEV-025: relógio simulado em revisões.
+// DEV-026: modalidade do workspace e código de inscrição em revisões.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -92,6 +93,13 @@ enum AccountStatus {
   @@map("account_status")
 }
 
+enum WorkspaceModality {
+  SHARED
+  ISOLATED
+
+  @@map("workspace_modality")
+}
+
 enum PaymentModality {
   PIX_KEY
   PIX_COPY_PASTE
@@ -114,6 +122,8 @@ model Workspace {
   audit       AuditRecord[]
   educational EducationalConfigRevision[]
   clock       SimulationClockRevision[]
+  modality    WorkspaceModality           @default(ISOLATED)
+  enrollment  WorkspaceEnrollmentCode[]
 
   @@map("workspace")
 }
@@ -197,6 +207,7 @@ model UserIdentity {
   audit                AuditRecord[]
   educationalRevisions EducationalConfigRevision[]
   clockRevisions       SimulationClockRevision[]
+  enrollmentCodes      WorkspaceEnrollmentCode[]
 
   @@unique([id, profile])
   @@map("user_identity")
@@ -340,4 +351,19 @@ model SimulationClockRevision {
 
   @@id([workspaceId, revision])
   @@map("simulation_clock_revision")
+}
+
+/// Revisão do código de inscrição (só inserção). A vigente é a de maior número; sem hash, o código foi revogado. O código em claro nunca é gravado.
+model WorkspaceEnrollmentCode {
+  id          String       @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String       @map("workspace_id") @db.Uuid
+  revision    Int
+  codeHash    String?      @map("code_hash") @db.Char(64)
+  createdBy   String       @map("created_by") @db.Uuid
+  createdAt   DateTime     @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  author      UserIdentity @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([workspaceId, revision])
+  @@map("workspace_enrollment_code")
 }

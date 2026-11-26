@@ -12,7 +12,7 @@ import { PrismaWorkspaceAccessReader } from '../../../src/identity/adapters/pris
 import { IdentityError } from '../../../src/identity/domain/errors.js';
 import type { WorkspaceAccess } from '../../../src/identity/domain/workspace-access.js';
 import { PrismaService } from '../../../src/persistence/prisma.service.js';
-import { Browser, call, contractPath, type Reply, startApp } from '../authentication/http-support.js';
+import { Browser, call, contractPath, type Method, type Reply, startApp } from '../authentication/http-support.js';
 import { type AuthHarness, authHarness, OTHER_PASSWORD, PASSWORD, type Person } from '../authentication/support.js';
 
 let writes = 0;
@@ -47,6 +47,8 @@ class ProbeController {
 }
 
 const LIST = '/facilitator/workspaces';
+/** Workspace de teste: ISOLATED, ativo, sem código de inscrição. */
+const ISOLATED_SUMMARY = { modality: 'ISOLATED', status: 'ACTIVE', enrollment: { active: false, revision: 0, required: false } };
 const one = (id: string | null): string => `${LIST}/${id}`;
 
 describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
@@ -115,7 +117,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(21);
+      expect(routes).toHaveLength(23);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
@@ -206,7 +208,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
     it('com vínculo ativo devolve exatamente o workspace', async () => {
       const reply = await (await enter(fab)).api('GET', one(b.workspaceId));
       expect(reply.status).toBe(200);
-      expect(reply.body).toEqual({ workspaceId: b.workspaceId, alias: b.alias });
+      expect(reply.body).toEqual({ workspaceId: b.workspaceId, alias: b.alias, ...ISOLATED_SUMMARY });
     });
 
     it('vínculo revogado e reativado valem na requisição seguinte, sem novo login nem efeito nos outros', async () => {
@@ -264,7 +266,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       expect(ids(await (await enter(fa)).api('GET', LIST))).toEqual([a.workspaceId]);
       const browser = await enter(fab);
       expect((await browser.api('GET', LIST)).body).toEqual({
-        items: [{ workspaceId: a.workspaceId, alias: a.alias }, { workspaceId: b.workspaceId, alias: b.alias }], nextOffset: null,
+        items: [{ workspaceId: a.workspaceId, alias: a.alias, ...ISOLATED_SUMMARY }, { workspaceId: b.workspaceId, alias: b.alias, ...ISOLATED_SUMMARY }], nextOffset: null,
       });
       await setLink(a.workspaceId, fab.id, 'REVOKED');
       expect(ids(await browser.api('GET', LIST))).toEqual([b.workspaceId]);
@@ -314,6 +316,8 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/password-reset': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/flags': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'patch /api/v1/facilitator/workspaces/{workspaceId}/flags': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/enrollment-code': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'delete /api/v1/facilitator/workspaces/{workspaceId}/enrollment-code': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'patch /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
     };
@@ -336,10 +340,10 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           const base = typeof seen?.body['revision'] === 'number' ? seen.body['revision'] : 0;
           const change = path.includes('clock') ? { date: `2030-0${i + 1}-15` } : { configuration: { mode: 'STUDENT', preset: { kind: 'NONE' } } };
           const body = method === 'patch' ? { baseRevision: base, ...change } : undefined;
-          const reply = await browser.api(method.toUpperCase() as 'GET' | 'POST' | 'PATCH', url, body);
+          const reply = await browser.api(method.toUpperCase() as Method, url, body);
           expect(reply.status, `${actor} em ${i === 0 ? 'A' : 'B'}`).toBe(expected[actor][i]);
           const own = reply.status === 200;
-          const marks = path.includes('customers') ? [target.id] : /flags|clock/.test(path) ? [target.workspaceId ?? '-'] : [target.workspaceId ?? '-', target.alias ?? '-'];
+          const marks = path.includes('customers') ? [target.id] : /flags|clock|enrollment/.test(path) ? [target.workspaceId ?? '-'] : [target.workspaceId ?? '-', target.alias ?? '-'];
           for (const mark of marks) {
             expect(reply.text.includes(mark)).toBe(own);
           }

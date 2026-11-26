@@ -2,6 +2,8 @@ import type { PasswordHasher } from '../../authentication/application/ports.js';
 import { parseNewPassword } from '../../authentication/domain/password-policy.js';
 import { normalizeEmail } from '../../identity/domain/email.js';
 import { parseWorkspaceAlias } from '../../identity/domain/workspace-alias.js';
+import { isWorkspaceModality } from '../../identity/domain/workspace-modality.js';
+import { AdministrationError } from '../domain/errors.js';
 import type { IssuedCredential, TemporaryCredentialGenerator } from './temporary-credential.js';
 import type { BootstrapOutcome, IdentityState, MembershipState, OperatorStore } from './operator.store.js';
 
@@ -28,8 +30,13 @@ export class OperatorService {
     return this.deps.store.bootstrap({ alias, email, hash, correlationId: this.deps.correlationId });
   }
 
-  async createWorkspace(rawAlias: unknown): Promise<void> {
-    await this.deps.store.createWorkspace(parseWorkspaceAlias(rawAlias), this.deps.correlationId);
+  /** A modalidade é fixa a partir daqui. */
+  async createWorkspace(rawAlias: unknown, rawModality: unknown): Promise<void> {
+    const alias = parseWorkspaceAlias(rawAlias);
+    if (!isWorkspaceModality(rawModality)) {
+      throw new AdministrationError('INVALID_MODALITY');
+    }
+    await this.deps.store.createWorkspace(alias, rawModality, this.deps.correlationId);
   }
 
   async createFacilitator(rawEmail: unknown, password: PasswordSource): Promise<void> {

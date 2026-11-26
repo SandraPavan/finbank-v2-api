@@ -109,9 +109,9 @@ describe('operações do operador (PostgreSQL real)', () => {
   describe('comandos', () => {
     it('criar o que existe falha sem alterar; clientes repetem e-mail só em workspaces diferentes', async () => {
       const [a, b, email] = [newAlias(), newAlias(), newEmail()];
-      await operator.createWorkspace(a);
-      await operator.createWorkspace(b);
-      await expect(operator.createWorkspace(a)).rejects.toMatchObject({ code: 'ALREADY_EXISTS' });
+      await operator.createWorkspace(a, 'ISOLATED');
+      await operator.createWorkspace(b, 'ISOLATED');
+      await expect(operator.createWorkspace(a, 'ISOLATED')).rejects.toMatchObject({ code: 'ALREADY_EXISTS' });
       await operator.createFacilitator(email, give(PASSWORD));
       await expect(operator.createFacilitator(email, give(OTHER_PASSWORD))).rejects.toMatchObject({ code: 'ALREADY_EXISTS' });
       await h.auth.loginFacilitator({ email, password: PASSWORD });
@@ -126,7 +126,7 @@ describe('operações do operador (PostgreSQL real)', () => {
       await expect(operator.createCustomer(alias, email, give(PASSWORD))).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(operator.setFacilitatorState(email, 'DISABLED')).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(operator.setMembership(alias, email, 'ACTIVE')).rejects.toMatchObject({ code: 'NOT_FOUND' });
-      await operator.createWorkspace(alias);
+      await operator.createWorkspace(alias, 'ISOLATED');
       await operator.createFacilitator(email, give(PASSWORD));
       await expect(operator.setMembership(alias, email, 'REVOKED')).rejects.toMatchObject({ code: 'NOT_FOUND' });
       // O e-mail de cliente não designa facilitador.
@@ -148,7 +148,7 @@ describe('operações do operador (PostgreSQL real)', () => {
 
     it('vínculo concedido, revogado e devolvido, com repetição sem mudança', async () => {
       const [alias, person] = [newAlias(), await h.facilitator()];
-      await operator.createWorkspace(alias);
+      await operator.createWorkspace(alias, 'ISOLATED');
       const results = [];
       for (const state of ['ACTIVE', 'ACTIVE', 'REVOKED', 'REVOKED', 'ACTIVE'] as const) {
         results.push(await operator.setMembership(alias, person.email, state));
@@ -161,7 +161,7 @@ describe('operações do operador (PostgreSQL real)', () => {
       const [alias, email] = [newAlias(), newEmail()];
       for (const attempt of [
         () => limited.bootstrap(alias, email, give(PASSWORD)),
-        () => limited.createWorkspace(alias),
+        () => limited.createWorkspace(alias, 'ISOLATED'),
         () => limited.createFacilitator(email, give(PASSWORD)),
       ]) {
         await expect(attempt()).rejects.toMatchObject({ code: 'ADMINISTRATION_FAILED' });
@@ -182,7 +182,7 @@ describe('operações do operador (PostgreSQL real)', () => {
     });
 
     it('auditoria é imutável também para o dono e recusa registros incoerentes', async () => {
-      await operator.createWorkspace(newAlias());
+      await operator.createWorkspace(newAlias(), 'ISOLATED');
       for (const sql of [
         `UPDATE "audit_record" SET "result" = 'UNCHANGED'`, 'DELETE FROM "audit_record"', 'TRUNCATE "audit_record"', 'TRUNCATE "workspace" CASCADE',
       ]) {
@@ -214,7 +214,7 @@ describe('operações do operador (PostgreSQL real)', () => {
       await op.setFacilitatorState(email, 'DISABLED');
       await op.setFacilitatorState(email, 'DISABLED');
       await op.setFacilitatorState(email, 'ACTIVE');
-      await expect(op.createWorkspace(alias)).rejects.toThrow();
+      await expect(op.createWorkspace(alias, 'ISOLATED')).rejects.toThrow();
       const rows = await audit(correlation);
       const w = (await workspace(alias))?.id;
       const f = (await facilitator(email))?.id;
@@ -308,7 +308,9 @@ describe('operações do operador (PostgreSQL real)', () => {
         await cli(['facilitator', 'create', '--email', email], ''),
         await cli(['facilitator', 'create', '--email', email], `${PASSWORD}\n${PASSWORD}\n`),
         await cli(['facilitator', 'create', '--email', 'sem-arroba'], PASSWORD),
-        await cli(['workspace', 'create', '--alias', 'INVALIDO']),
+        await cli(['workspace', 'create', '--alias', 'INVALIDO', '--modality', 'SHARED']),
+        await cli(['workspace', 'create', '--alias', 'sem-modalidade']),
+        await cli(['workspace', 'create', '--alias', 'sem-modalidade', '--modality', 'PUBLICO']),
       ];
       for (const run of runs) {
         expect([run.code, run.out]).toEqual([2, '']);
@@ -317,11 +319,12 @@ describe('operações do operador (PostgreSQL real)', () => {
         expect(run.err).not.toMatch(/\n\s+at |Error:|INVALIDO|sem-arroba/);
       }
       expect(await h.db.client.userIdentity.count()).toBe(before);
+      expect(await workspace('sem-modalidade')).toBeNull();
     });
 
     it('banco ausente, inacessível ou sem privilégio sai com 1, sem credenciais', async () => {
       const alias = newAlias();
-      const args = ['workspace', 'create', '--alias', alias];
+      const args = ['workspace', 'create', '--alias', alias, '--modality', 'SHARED'];
       const runs = [
         await cli(args, null, ''),
         await cli(args, null, 'postgresql://usuario:segredo@127.0.0.1:1/banco'),

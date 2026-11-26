@@ -26,6 +26,7 @@ const AFTER = [
   '20261129000000_educational_config',
   '20261130000000_payment_states_credit',
   '20261201000000_simulation_clock',
+  '20261202000000_workspace_modality_enrollment',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';
@@ -108,7 +109,7 @@ describe('migração aditiva sobre dados existentes', () => {
     expect(rows).toEqual([{ type: 'TRANSFER', linked: false }]);
     expect(await db.paymentOperation.findMany({ select: { modality: true } })).toEqual([{ modality: null }]);
     expect(await db.account.findMany({ select: { status: true } })).toEqual([{ status: 'ACTIVE' }, { status: 'ACTIVE' }]);
-    expect(await db.workspace.findMany({ select: { status: true } })).toEqual([{ status: 'ACTIVE' }]);
+    expect(await db.workspace.findMany({ select: { status: true, modality: true } })).toEqual([{ status: 'ACTIVE', modality: 'ISOLATED' }]);
 
     // Dados anteriores intactos e senha e sessão anteriores válidas e nenhum vínculo criado pela migração.
     const before = await db.account.findMany({ select: { id: true, balanceCents: true }, orderBy: { balanceCents: 'asc' } });
@@ -126,6 +127,7 @@ describe('migração aditiva sobre dados existentes', () => {
     expect(await db.temporaryCredential.count()).toBe(0);
     expect(await db.educationalConfigRevision.count()).toBe(0);
     expect(await db.simulationClockRevision.count()).toBe(0);
+    expect(await db.workspaceEnrollmentCode.count()).toBe(0);
 
     // Estorno e reconciliação pelo usuário de execução, com as concessões da migração nova.
     runtime = new PrismaService({ databaseUrl: appUpgradeUrl });

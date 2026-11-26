@@ -75,6 +75,7 @@ describe('papel de execução no PostgreSQL', () => {
       'user_session:INSERT',
       'user_session:SELECT',
       'workspace:SELECT',
+      'workspace_enrollment_code:SELECT',
       'workspace_membership:SELECT',
     ]);
 
@@ -125,6 +126,10 @@ describe('papel de execução no PostgreSQL', () => {
       'user_session.idle_expires_at:UPDATE',
       'user_session.last_activity_at:UPDATE',
       'user_session.revoked_at:UPDATE',
+      'workspace_enrollment_code.code_hash:INSERT',
+      'workspace_enrollment_code.created_by:INSERT',
+      'workspace_enrollment_code.revision:INSERT',
+      'workspace_enrollment_code.workspace_id:INSERT',
     ]);
 
     const [publicGrants] = await h.db.client.$queryRaw<{ total: number }[]>`
@@ -216,6 +221,11 @@ describe('papel de execução no PostgreSQL', () => {
       ['truncar revisões do relógio', () => raw('TRUNCATE "simulation_clock_revision"')],
       ['escolher o instante da revisão do relógio', () => raw(`INSERT INTO "simulation_clock_revision" ("created_at") VALUES (now())`)],
       ['escolher o identificador da revisão do relógio', () => raw(`INSERT INTO "simulation_clock_revision" ("id") VALUES (gen_random_uuid())`)],
+      ['mudar a modalidade do workspace', () => raw(`UPDATE "workspace" SET "modality" = 'SHARED'`)],
+      ['alterar código de inscrição', () => raw(`UPDATE "workspace_enrollment_code" SET "code_hash" = NULL`)],
+      ['apagar código de inscrição', () => raw('DELETE FROM "workspace_enrollment_code"')],
+      ['truncar códigos de inscrição', () => raw('TRUNCATE "workspace_enrollment_code"')],
+      ['escolher o instante do código', () => raw(`INSERT INTO "workspace_enrollment_code" ("created_at") VALUES (now())`)],
       ['apagar credencial temporária', () => raw('DELETE FROM "temporary_credential"')],
       ['estender credencial temporária', () => raw(`UPDATE "temporary_credential" SET "expires_at" = now()`)],
       ['trocar o hash da temporária', () => raw(`UPDATE "temporary_credential" SET "hash" = 'x'`)],
