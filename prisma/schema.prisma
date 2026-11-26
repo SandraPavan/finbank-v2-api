@@ -4,6 +4,7 @@
 // DEV-016: credencial permanente e sessões.
 // DEV-019: auditoria administrativa.
 // DEV-020: credencial temporária e escopo da sessão.
+// DEV-023: configuração educacional em revisões.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -76,15 +77,16 @@ enum SessionScope {
 
 /// Escopo de dados. Não representa identidade nem autorização.
 model Workspace {
-  id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  id          String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt   DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
   accounts    Account[]
   operations  PaymentOperation[]
   entries     LedgerEntry[]
-  alias       String?               @unique @db.VarChar(40)
+  alias       String?                     @unique @db.VarChar(40)
   memberships WorkspaceMembership[]
   customers   UserIdentity[]
   audit       AuditRecord[]
+  educational EducationalConfigRevision[]
 
   @@map("workspace")
 }
@@ -160,10 +162,11 @@ model UserIdentity {
   createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   memberships WorkspaceMembership[]
 
-  credential PasswordCredential?
-  temporary  TemporaryCredential[]
-  sessions   UserSession[]
-  audit      AuditRecord[]
+  credential           PasswordCredential?
+  temporary            TemporaryCredential[]
+  sessions             UserSession[]
+  audit                AuditRecord[]
+  educationalRevisions EducationalConfigRevision[]
 
   @@unique([id, profile])
   @@map("user_identity")
@@ -258,4 +261,38 @@ model TemporaryCredential {
 
   @@index([identityId])
   @@map("temporary_credential")
+}
+
+enum EducationalMode {
+  STUDENT
+  CONTROLLED
+
+  @@map("educational_mode")
+}
+
+enum EducationalPreset {
+  NONE
+  ALL
+  LAB
+
+  @@map("educational_preset")
+}
+
+/// Revisão da configuração educacional (só inserção). A vigente é a de maior número; 0 = padrão, nunca gravado.
+model EducationalConfigRevision {
+  id               String             @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String             @map("workspace_id") @db.Uuid
+  revision         Int
+  catalogVersion   String             @map("catalog_version") @db.VarChar(12)
+  mode             EducationalMode
+  preset           EducationalPreset?
+  labCodeHash      String?            @map("lab_code_hash") @db.Char(64)
+  enabledDefectIds String[]           @map("enabled_defect_ids")
+  createdBy        String             @map("created_by") @db.Uuid
+  createdAt        DateTime           @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  workspace        Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  author           UserIdentity       @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([workspaceId, revision])
+  @@map("educational_config_revision")
 }

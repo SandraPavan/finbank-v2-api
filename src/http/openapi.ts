@@ -88,6 +88,7 @@ const WORKSPACE_FIELDS = {
   workspaceId: { type: 'string', format: 'uuid' },
   alias: { type: ['string', 'null'] },
 };
+const DEFECT_ID = { type: 'string', pattern: '^d-[0-9a-f]{16}$' };
 const CUSTOMER_FIELDS = {
   customerId: { type: 'string', format: 'uuid' },
   status: { type: 'string', enum: ['ACTIVE', 'DISABLED'] },
@@ -201,6 +202,29 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/facilitator/workspaces/{workspaceId}/flags': {
+      get: {
+        operationId: 'getEducationalConfig',
+        summary: 'Configuração educacional vigente do workspace',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }],
+        responses: {
+          200: { description: 'Revisão vigente resolvida; 0 = padrão sem defeitos', headers: CORRELATION, content: json('EducationalConfig') },
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+      patch: {
+        operationId: 'changeEducationalConfig',
+        summary: 'Grava a revisão seguinte; baseRevision deve ser a vigente',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }, ...CSRF_PARAMETER],
+        requestBody: { required: true, content: json('EducationalConfigChange') },
+        responses: {
+          200: { description: 'Nova revisão resolvida', headers: CORRELATION, content: json('EducationalConfig') },
+          ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'CONFIGURATION_CONFLICT', 'EDUCATIONAL_CONFIG_INVALID'),
+        },
+      },
+    },
     '/api/v1/facilitator/workspaces/{workspaceId}/customers': {
       get: {
         operationId: 'listWorkspaceCustomers',
@@ -301,6 +325,24 @@ export const OPENAPI_DOCUMENT = {
       WorkspacePage: fields({
         items: { type: 'array', items: fields(WORKSPACE_FIELDS) },
         nextOffset: { type: ['integer', 'null'], description: 'Início da próxima página; null na última' },
+      }),
+      EducationalConfig: fields({
+        workspaceId: { type: 'string', format: 'uuid' },
+        revision: { type: 'integer', minimum: 0 },
+        catalogVersion: { type: 'string', pattern: '^[0-9]{4}\\.(0[1-9]|1[0-2])\\.[1-9][0-9]{0,3}$' },
+        stale: { type: 'boolean', description: 'Revisão criada com outra versão do catálogo: nenhum defeito vale' },
+        mode: { type: 'string', enum: ['STUDENT', 'CONTROLLED'] },
+        preset: { oneOf: [{ type: 'null' }, fields({ kind: { type: 'string', enum: ['NONE', 'ALL', 'LAB'] } })] },
+        enabledDefectIds: { type: 'array', items: DEFECT_ID },
+        environment: { type: 'string', enum: ['ISOLATED', 'SHARED'] },
+        availableDefectIds: { type: 'array', items: DEFECT_ID },
+      }),
+      EducationalConfigChange: fields({
+        baseRevision: { type: 'integer', minimum: 0 },
+        configuration: {
+          type: 'object',
+          description: 'STUDENT: { mode, preset: { kind: NONE | ALL } ou { kind: LAB, code } }. CONTROLLED: { mode, enabledDefectIds? }',
+        },
       }),
       CustomerPage: fields({
         items: { type: 'array', items: fields({ ...CUSTOMER_FIELDS, email: text }) },

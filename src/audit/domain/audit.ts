@@ -18,10 +18,11 @@ export type AuditOperation =
   | 'PASSWORD_RESET_ISSUE'
   | 'TEMPORARY_CREDENTIAL_CONSUME'
   | 'PASSWORD_RECOVERY_COMPLETE'
-  | 'PASSWORD_CHANGE';
+  | 'PASSWORD_CHANGE'
+  | 'EDUCATIONAL_CONFIG_CHANGE';
 
 /** Em vínculos, o recurso é a identidade do facilitador; o workspace completa o par. */
-export type AuditResource = 'WORKSPACE' | 'IDENTITY' | 'MEMBERSHIP';
+export type AuditResource = 'WORKSPACE' | 'IDENTITY' | 'MEMBERSHIP' | 'EDUCATIONAL_CONFIG_REVISION';
 
 /** Registro de uma operação. Só códigos e identificadores: nunca senha, e-mail ou segredo. */
 export interface AuditEntry {

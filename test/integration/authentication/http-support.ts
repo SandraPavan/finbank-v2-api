@@ -9,9 +9,15 @@ import { loadAppConfig } from '../../../src/config/app-config.js';
 import { configureHttp, HTTP_APPLICATION_OPTIONS } from '../../../src/http/configure-http.js';
 import { OPENAPI_DOCUMENT } from '../../../src/http/openapi.js';
 
-export async function startApp(env: Record<string, string> = {}, controllers: Type[] = []): Promise<{ app: NestExpressApplication; url: string }> {
+export type Method = 'GET' | 'POST' | 'PATCH';
+
+export async function startApp(env: Record<string, string> = {}, controllers: Type[] = [], overrides: [unknown, unknown][] = []): Promise<{ app: NestExpressApplication; url: string }> {
   const config = { ...loadAppConfig({ DATABASE_URL: inject('appDatabaseUrl'), ...env }), port: 0 };
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(config)], controllers }).compile();
+  let builder = Test.createTestingModule({ imports: [AppModule.forRoot(config)], controllers });
+  for (const [token, value] of overrides) {
+    builder = builder.overrideProvider(token).useValue(value);
+  }
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>({ ...HTTP_APPLICATION_OPTIONS, logger: false });
   configureHttp(app);
   await app.listen(0, '127.0.0.1');
@@ -56,8 +62,8 @@ export interface CallOptions {
   readonly raw?: string;
 }
 
-export async function call(url: string, method: 'GET' | 'POST', path: string, options: CallOptions = {}): Promise<Reply> {
-  const request = spec()[method === 'GET' ? 'get' : 'post'](`${url}${path}`).withHeaders(options.headers ?? {});
+export async function call(url: string, method: Method, path: string, options: CallOptions = {}): Promise<Reply> {
+  const request = spec()[method === 'GET' ? 'get' : method === 'POST' ? 'post' : 'patch'](`${url}${path}`).withHeaders(options.headers ?? {});
   if (options.json !== undefined) {
     request.withHeaders('content-type', 'application/json').withBody(JSON.stringify(options.json));
   } else if (options.raw !== undefined) {
@@ -108,17 +114,17 @@ export class Browser {
     return [...this.jar].map(([name, value]) => `${name}=${value}`).join('; ');
   }
 
-  send(method: 'GET' | 'POST', path: string, json?: unknown, headers: Record<string, string> = {}): Promise<Reply> {
+  send(method: Method, path: string, json?: unknown, headers: Record<string, string> = {}): Promise<Reply> {
     return this.api(method, `/auth${path}`, json, headers);
   }
 
-  async api(method: 'GET' | 'POST', path: string, json?: unknown, headers: Record<string, string> = {}): Promise<Reply> {
+  async api(method: Method, path: string, json?: unknown, headers: Record<string, string> = {}): Promise<Reply> {
     const reply = await call(this.url, method, `/api/v1${path}`, {
       ...(json === undefined ? {} : { json }),
       headers: {
         ...this.extra,
         ...(this.jar.size === 0 ? {} : { cookie: this.cookie }),
-        ...(method === 'POST' && this.token !== '' ? { 'x-csrf-token': this.token } : {}),
+        ...(method !== 'GET' && this.token !== '' ? { 'x-csrf-token': this.token } : {}),
         ...headers,
       },
     });

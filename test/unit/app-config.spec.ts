@@ -22,6 +22,20 @@ describe('loadAppConfig — PORT', () => {
   );
 });
 
+describe('loadAppConfig — FINBANK_ENVIRONMENT', () => {
+  it('ausente é SHARED, o mais restritivo', () => {
+    expect(loadAppConfig({ DATABASE_URL: VALID_DB }).environment).toBe('SHARED');
+  });
+
+  it.each(['ISOLATED', 'SHARED'] as const)('aceita %s', (value) => {
+    expect(loadAppConfig({ DATABASE_URL: VALID_DB, FINBANK_ENVIRONMENT: value }).environment).toBe(value);
+  });
+
+  it.each(['', 'isolated', ' ISOLATED', 'PROD', 'LOCAL'])('recusa %j sem ecoar', (value) => {
+    expect(() => loadAppConfig({ DATABASE_URL: VALID_DB, FINBANK_ENVIRONMENT: value })).toThrow(/FINBANK_ENVIRONMENT deve ser 'ISOLATED' ou 'SHARED'/);
+  });
+});
+
 describe('loadAppConfig — DATABASE_URL', () => {
   it('aceita URLs postgres:// e postgresql://', () => {
     expect(loadAppConfig({ DATABASE_URL: VALID_DB }).databaseUrl).toBe(VALID_DB);

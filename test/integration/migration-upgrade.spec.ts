@@ -23,6 +23,7 @@ const AFTER = [
   '20261126000000_authentication_control',
   '20261127000000_administration',
   '20261128000000_temporary_credential',
+  '20261129000000_educational_config',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';
@@ -118,6 +119,7 @@ describe('migração aditiva sobre dados existentes', () => {
     expect(await db.userSession.findMany()).toMatchObject([{ scope: 'NORMAL', revokedAt: null }]);
     expect(await db.auditRecord.count()).toBe(0);
     expect(await db.temporaryCredential.count()).toBe(0);
+    expect(await db.educationalConfigRevision.count()).toBe(0);
 
     // Estorno e reconciliação pelo usuário de execução, com as concessões da migração nova.
     runtime = new PrismaService({ databaseUrl: appUpgradeUrl });

@@ -30,6 +30,8 @@ export interface AppConfig {
   readonly loginLimits: LoginLimitsConfig;
   readonly cookieTransport: CookieTransport;
   readonly temporaryCredentialHours: number;
+  /** Classificação da implantação. Ausente = SHARED, o mais restritivo. */
+  readonly environment: 'ISOLATED' | 'SHARED';
 }
 
 export class InvalidConfigError extends Error {
@@ -49,6 +51,7 @@ export function loadAppConfig(env: Readonly<Record<string, string | undefined>>)
     session: parseSession(env),
     loginLimits: parseLoginLimits(env),
     cookieTransport: parseCookieTransport(env['COOKIE_TRANSPORT']),
+    environment: parseEnvironmentKind(env['FINBANK_ENVIRONMENT']),
     temporaryCredentialHours: parseInteger('TEMPORARY_CREDENTIAL_HOURS', env['TEMPORARY_CREDENTIAL_HOURS'], 24, 168),
   };
 }
@@ -78,6 +81,16 @@ function parseLoginLimits(env: Readonly<Record<string, string | undefined>>): Lo
     throw new InvalidConfigError('LOGIN_MAX_RESTRICTION_SECONDS', 'deve ser maior ou igual a LOGIN_RESTRICTION_SECONDS');
   }
   return limits;
+}
+
+function parseEnvironmentKind(raw: string | undefined): 'ISOLATED' | 'SHARED' {
+  if (raw === undefined) {
+    return 'SHARED';
+  }
+  if (raw !== 'ISOLATED' && raw !== 'SHARED') {
+    throw new InvalidConfigError('FINBANK_ENVIRONMENT', "deve ser 'ISOLATED' ou 'SHARED'");
+  }
+  return raw;
 }
 
 function parseCookieTransport(raw: string | undefined): CookieTransport {

@@ -196,9 +196,9 @@ describe('arquitetura da autorização', () => {
     }
   });
 
-  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração', () => {
+  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração e da configuração educacional', () => {
     const users = files.filter((f) => !f.path.startsWith('access/') && imports(f.text).some((s) => /\/access\//.test(s)));
-    expect(users.map((f) => f.path).sort()).toEqual(['administration/http/facilitator-customers.controller.ts', 'app.module.ts']);
+    expect(users.map((f) => f.path).sort()).toEqual(['administration/http/facilitator-customers.controller.ts', 'app.module.ts', 'education/http/educational-config.controller.ts']);
   });
 
   it('o controller não lê o identificador do caminho', () => {
@@ -248,10 +248,11 @@ describe('arquitetura da administração', () => {
 
 describe('arquitetura dos modos educacionais', () => {
   const module = files.filter((f) => f.path.startsWith('education/'));
+  const domain = module.filter((f) => !f.path.slice('education/'.length).includes('/') && f.path !== 'education/education.module.ts');
 
-  it('é domínio puro: além de si mesmo, só importa o tipo de acesso confirmado e o hash do Node', () => {
-    expect(module.length).toBe(3);
-    for (const file of module) {
+  it('o domínio é puro: além de si mesmo, só importa o tipo de acesso confirmado e o hash do Node', () => {
+    expect(domain.map((f) => f.path).sort()).toEqual(['education/defect-catalog.ts', 'education/educational-mode.ts', 'education/educational-policy.ts']);
+    for (const file of domain) {
       for (const spec of imports(file.text)) {
         expect(spec, file.path).toMatch(/^\.\/[a-z-]+\.js$|^\.\.\/identity\/domain\/workspace-access\.js$|^node:crypto$/);
       }
@@ -259,8 +260,19 @@ describe('arquitetura dos modos educacionais', () => {
     }
   });
 
-  it('ainda não é usado por nenhum outro módulo', () => {
+  it('a aplicação não importa NestJS, Prisma, HTTP nem adaptadores', () => {
+    for (const file of module.filter((f) => f.path.startsWith('education/application/'))) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).not.toMatch(/^@nestjs|^@prisma|^node:|generated|persistence|adapters|http/);
+      }
+    }
+  });
+
+  it('só a raiz o compõe; nenhum outro módulo, financeiro ou não, depende dele', () => {
     const users = files.filter((f) => !f.path.startsWith('education/') && imports(f.text).some((s) => /\/education\//.test(s)));
-    expect(users).toEqual([]);
+    expect(users.map((f) => f.path)).toEqual(['app.module.ts']);
+    for (const file of module) {
+      expect(imports(file.text).join(' '), file.path).not.toMatch(/payment-execution|reconciliation|administration|authentication/);
+    }
   });
 });

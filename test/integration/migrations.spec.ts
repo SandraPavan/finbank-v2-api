@@ -41,6 +41,8 @@ describe('migrações Prisma em banco descartável', () => {
         'enum AccountKind',
         'enum AuditActorType',
         'enum AuditResult',
+        'enum EducationalMode',
+        'enum EducationalPreset',
         'enum IdentityStatus',
         'enum MembershipRole',
         'enum MembershipStatus',
@@ -49,6 +51,7 @@ describe('migrações Prisma em banco descartável', () => {
         'model Account',
         'model AuditRecord',
         'model AuthenticationControl',
+        'model EducationalConfigRevision',
         'model LedgerEntry',
         'model PasswordCredential',
         'model PaymentOperation',
@@ -75,6 +78,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261126000000_authentication_control', finished: true },
       { migration_name: '20261127000000_administration', finished: true },
       { migration_name: '20261128000000_temporary_credential', finished: true },
+      { migration_name: '20261129000000_educational_config', finished: true },
     ]);
   });
 
@@ -83,7 +87,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(10);
+    expect(rows[0]?.total).toBe(11);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -107,6 +111,7 @@ describe('migrações Prisma em banco descartável', () => {
       'account',
       'audit_record',
       'authentication_control',
+      'educational_config_revision',
       'ledger_entry',
       'password_credential',
       'payment_operation',
@@ -129,6 +134,10 @@ describe('migrações Prisma em banco descartável', () => {
       'audit_record_correlation_format',
       'authentication_control_failures_positive',
       'authentication_control_subject_format',
+      'educational_config_revision_catalog_version',
+      'educational_config_revision_number',
+      'educational_config_revision_shape',
+      'educational_config_revision_values',
       'ledger_entry_amount_nonzero',
       'password_credential_hash_format',
       'payment_operation_amount_positive',
@@ -153,6 +162,8 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'account_identity_immutable', deferred: false },
       { tgname: 'audit_record_immutable', deferred: false },
       { tgname: 'audit_record_no_truncate', deferred: false },
+      { tgname: 'educational_config_revision_immutable', deferred: false },
+      { tgname: 'educational_config_revision_no_truncate', deferred: false },
       { tgname: 'ledger_entry_balanced', deferred: true },
       { tgname: 'ledger_entry_immutable', deferred: false },
       { tgname: 'ledger_entry_no_truncate', deferred: false },
