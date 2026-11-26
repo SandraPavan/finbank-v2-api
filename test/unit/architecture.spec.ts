@@ -245,3 +245,22 @@ describe('arquitetura da administração', () => {
     expect(writers.map((f) => f.path)).toEqual(['administration/adapters/prisma-operator.store.ts']);
   });
 });
+
+describe('arquitetura dos modos educacionais', () => {
+  const module = files.filter((f) => f.path.startsWith('education/'));
+
+  it('é domínio puro: além de si mesmo, só importa o tipo de acesso confirmado e o hash do Node', () => {
+    expect(module.length).toBe(3);
+    for (const file of module) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).toMatch(/^\.\/[a-z-]+\.js$|^\.\.\/identity\/domain\/workspace-access\.js$|^node:crypto$/);
+      }
+      expect(file.text, file.path).not.toMatch(/console\.|Logger|process\.env|Math\.random|Date\.now/);
+    }
+  });
+
+  it('ainda não é usado por nenhum outro módulo', () => {
+    const users = files.filter((f) => !f.path.startsWith('education/') && imports(f.text).some((s) => /\/education\//.test(s)));
+    expect(users).toEqual([]);
+  });
+});

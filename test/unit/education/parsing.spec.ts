@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFECT_CATALOG, validateCatalog } from '../../../src/education/defect-catalog.js';
+import { type DefectCatalog, DEFECT_CATALOG, OPERATION_KEYS, validateCatalog } from '../../../src/education/defect-catalog.js';
 import {
   hashLabCode,
   InvalidEducationalConfigError,
@@ -7,11 +7,12 @@ import {
   parseEnvironment,
   parseLabCode,
   parseMode,
+  parseOperation,
   parsePreset,
   parseWorkspaceId,
   resolveLabPreset,
 } from '../../../src/education/educational-mode.js';
-import { CODE_1, CODE_UNKNOWN, FIXTURE_CATALOG, ID_A } from './fixture-catalog.js';
+import { CODE_1, CODE_UNKNOWN, FIXTURE_CATALOG, ID_A, ID_C, ID_D, OP_X } from './fixture-catalog.js';
 
 function rejection(fn: () => unknown): InvalidEducationalConfigError {
   try {
@@ -111,6 +112,10 @@ describe('código de laboratório', () => {
 });
 
 describe('parsePreset', () => {
+  it('aceita NONE', () => {
+    expect(parsePreset({ kind: 'NONE' }, FIXTURE_CATALOG)).toEqual({ kind: 'NONE' });
+  });
+
   it('aceita ALL', () => {
     expect(parsePreset({ kind: 'ALL' }, DEFECT_CATALOG)).toEqual({ kind: 'ALL' });
   });
@@ -139,15 +144,13 @@ describe('parsePreset', () => {
 });
 
 describe('parseConfigChange', () => {
-  it('STUDENT sem preset assume ALL', () => {
-    expect(parseConfigChange({ mode: 'STUDENT' }, DEFECT_CATALOG)).toEqual({ mode: 'STUDENT', preset: { kind: 'ALL' } });
+  it('STUDENT exige preset escrito', () => {
+    expect(rejection(() => parseConfigChange({ mode: 'STUDENT' }, DEFECT_CATALOG)).field).toBe('preset');
+    expect(parseConfigChange({ mode: 'STUDENT', preset: { kind: 'NONE' } }, DEFECT_CATALOG)).toEqual({ mode: 'STUDENT', preset: { kind: 'NONE' } });
   });
 
   it('CONTROLLED sem defeitos começa vazio', () => {
-    expect(parseConfigChange({ mode: 'CONTROLLED' }, DEFECT_CATALOG)).toEqual({
-      mode: 'CONTROLLED',
-      enabledDefectIds: [],
-    });
+    expect(parseConfigChange({ mode: 'CONTROLLED' }, DEFECT_CATALOG)).toEqual({ mode: 'CONTROLLED', enabledDefectIds: [] });
   });
 
   it('catálogo vigente vazio: qualquer defeito é rejeitado', () => {
@@ -155,9 +158,12 @@ describe('parseConfigChange', () => {
   });
 
   it.each([
-    [{ mode: 'STUDENT', role: 'FACILITATOR' }, 'papel no payload'],
+    [{ mode: 'STUDENT', preset: { kind: 'NONE' }, role: 'FACILITATOR' }, 'papel no payload'],
     [{ mode: 'CONTROLLED', workspaceId: 'ws-b' }, 'workspace no payload'],
-    [{ mode: 'STUDENT', enabledDefectIds: [] }, 'defeitos em STUDENT'],
+    [{ mode: 'STUDENT', preset: { kind: 'NONE' }, enabledDefectIds: [] }, 'defeitos em STUDENT'],
+    [{ mode: 'STUDENT', preset: { kind: 'NONE', code: 'X' } }, 'campo extra em NONE'],
+    [{ mode: 'STUDENT', preset: { kind: 'none' } }, 'NONE em minúsculas'],
+    [{ mode: 'STUDENT', preset: null }, 'preset nulo'],
     [{ mode: 'CONTROLLED', preset: { kind: 'ALL' } }, 'preset em CONTROLLED'],
     [{ mode: 'CONTROLLED', enabledDefectIds: ID_A }, 'lista não é array'],
     [{ mode: 'CONTROLLED', enabledDefectIds: [ID_A, ID_A] }, 'defeito repetido'],
@@ -173,42 +179,66 @@ describe('parseConfigChange', () => {
   });
 
   it('rejeita objeto com protótipo não simples', () => {
-    const value = Object.assign(Object.create({ inherited: true }) as object, { mode: 'STUDENT' });
+    const value = Object.assign(Object.create({ inherited: true }) as object, { mode: 'CONTROLLED' });
     rejection(() => parseConfigChange(value, FIXTURE_CATALOG));
   });
 });
 
+describe('parseOperation', () => {
+  it('aceita só operações do catálogo, sem ecoar o valor', () => {
+    expect(parseOperation(OP_X, FIXTURE_CATALOG)).toBe(OP_X);
+    const error = rejection(() => parseOperation('OPERACAO_SECRETA_123', FIXTURE_CATALOG));
+    expect(error.message).not.toContain('OPERACAO_SECRETA_123');
+  });
+});
+
 describe('catálogo', () => {
-  it('catálogo vigente é vazio e congelado', () => {
-    expect(DEFECT_CATALOG.defects).toEqual([]);
-    expect(DEFECT_CATALOG.labPresets).toEqual([]);
-    expect(Object.isFrozen(DEFECT_CATALOG)).toBe(true);
-    expect(Object.isFrozen(DEFECT_CATALOG.defects)).toBe(true);
+  it('catálogo vigente: vazio, versionado, sem operações e congelado', () => {
+    expect(DEFECT_CATALOG).toEqual({ version: '2026.11.1', operations: [], defects: [], labPresets: [] });
+    expect(OPERATION_KEYS).toEqual([]);
+    for (const part of [DEFECT_CATALOG, DEFECT_CATALOG.defects, DEFECT_CATALOG.labPresets, DEFECT_CATALOG.operations]) {
+      expect(Object.isFrozen(part)).toBe(true);
+    }
   });
 
-  const valid = { id: ID_A, affectsSecurity: false, allowedEnvironments: ['ISOLATED'] };
+  const OP = 'OPERACAO_FICTICIA';
+  const valid = { id: ID_A, affectsSecurity: false, allowedEnvironments: ['ISOLATED'], operations: [OP], incompatibleWith: [] };
+  const other = { ...valid, id: ID_C };
+  const catalog = (patch: object): DefectCatalog => ({ version: '2026.01.1', operations: [OP], defects: [valid], labPresets: [], ...patch }) as DefectCatalog;
+
+  it('aceita catálogo mínimo válido', () => {
+    expect(validateCatalog(catalog({}))).toBeTruthy();
+  });
+
   it.each([
-    [{ defects: [{ ...valid, id: 'identificador-legivel' }], labPresets: [] }, 'id legível'],
-    [{ defects: [{ ...valid, id: 'd-FDF709B001BAB397' }], labPresets: [] }, 'id em maiúsculas'],
-    [{ defects: [{ ...valid, id: 'd-fdf709b001bab3' }], labPresets: [] }, 'id curto (14 hex)'],
-    [{ defects: [valid, valid], labPresets: [] }, 'id duplicado'],
-    [{ defects: [{ ...valid, allowedEnvironments: [] }], labPresets: [] }, 'sem ambiente'],
-    [{ defects: [{ ...valid, allowedEnvironments: ['PROD'] }], labPresets: [] }, 'ambiente desconhecido'],
-    [{ defects: [valid], labPresets: [{ codeHash: CODE_1, defectIds: [ID_A] }] }, 'código em claro no lugar do hash'],
-    [{ defects: [valid], labPresets: [{ codeHash: hashLabCode(CODE_1).toUpperCase(), defectIds: [ID_A] }] }, 'hash em maiúsculas'],
-    [{ defects: [valid], labPresets: [{ codeHash: hashLabCode(CODE_1), defectIds: [] }] }, 'preset vazio'],
-    [{ defects: [valid], labPresets: [{ codeHash: hashLabCode(CODE_1), defectIds: ['d-0000000000000000'] }] }, 'defeito inexistente'],
+    [{ version: '2026.13.1' }, 'mês inválido'],
+    [{ version: '2026.1.1' }, 'mês sem zero'],
+    [{ version: '2026.01.0' }, 'sequência zero'],
+    [{ version: 'v1' }, 'versão livre'],
+    [{ operations: ['operacao'] }, 'operação em minúsculas'],
+    [{ operations: [OP, OP] }, 'operação repetida'],
+    [{ defects: [{ ...valid, id: 'identificador-legivel' }] }, 'id legível'],
+    [{ defects: [{ ...valid, id: 'd-FDF709B001BAB397' }] }, 'id em maiúsculas'],
+    [{ defects: [valid, valid] }, 'id duplicado'],
+    [{ defects: [{ ...valid, allowedEnvironments: [] }] }, 'sem ambiente'],
+    [{ defects: [{ ...valid, allowedEnvironments: ['PROD'] }] }, 'ambiente desconhecido'],
+    [{ defects: [{ ...valid, operations: [] }] }, 'sem operação'],
+    [{ defects: [{ ...valid, operations: ['OUTRA_OPERACAO'] }] }, 'operação fora do catálogo'],
+    [{ defects: [{ ...valid, operations: [OP, OP] }] }, 'operação repetida no defeito'],
+    [{ defects: [{ ...valid, incompatibleWith: [ID_A] }] }, 'incompatível consigo'],
+    [{ defects: [{ ...valid, incompatibleWith: [ID_D] }] }, 'incompatível com inexistente'],
+    [{ defects: [{ ...valid, incompatibleWith: [ID_C] }, other] }, 'incompatibilidade assimétrica'],
+    [{ defects: [{ ...valid, incompatibleWith: [ID_C, ID_C] }, { ...other, incompatibleWith: [ID_A] }] }, 'incompatibilidade repetida'],
+    [{ labPresets: [{ codeHash: CODE_1, defectIds: [ID_A] }] }, 'código em claro no lugar do hash'],
+    [{ labPresets: [{ codeHash: hashLabCode(CODE_1), defectIds: [] }] }, 'preset vazio'],
+    [{ labPresets: [{ codeHash: hashLabCode(CODE_1), defectIds: ['d-0000000000000000'] }] }, 'defeito inexistente'],
+    [{ labPresets: [{ codeHash: hashLabCode(CODE_1), defectIds: [ID_A, ID_A] }] }, 'preset com repetição'],
     [
-      {
-        defects: [valid],
-        labPresets: [
-          { codeHash: hashLabCode(CODE_1), defectIds: [ID_A] },
-          { codeHash: hashLabCode(CODE_1), defectIds: [ID_A] },
-        ],
-      },
-      'hash duplicado',
+      { defects: [{ ...valid, incompatibleWith: [ID_C] }, { ...other, incompatibleWith: [ID_A] }], labPresets: [{ codeHash: hashLabCode(CODE_1), defectIds: [ID_A, ID_C] }] },
+      'preset com par incompatível',
     ],
-  ])('rejeita catálogo inconsistente (%j, %s)', (catalog: unknown, _caso: string) => {
-    rejection(() => validateCatalog(catalog as Parameters<typeof validateCatalog>[0]));
+    [{ labPresets: [{ codeHash: hashLabCode(CODE_1), defectIds: [ID_A] }, { codeHash: hashLabCode(CODE_1), defectIds: [ID_A] }] }, 'hash duplicado'],
+  ])('rejeita catálogo inconsistente (%j, %s)', (patch: object, _caso: string) => {
+    rejection(() => validateCatalog(catalog(patch)));
   });
 });

@@ -246,15 +246,18 @@ Comandos: `bootstrap`, `workspace create`, `facilitator create|disable|enable|re
 - **Erros:** `INVALID_CREDENTIALS`, `SESSION_INVALID`, `SESSION_EXPIRED`, `PASSWORD_POLICY` e `AUTHENTICATION_FAILED`, sem valores recebidos nem causa original. O módulo não escreve logs.
 - **Privilégios:** a execução lê e atualiza o hash da credencial, mas não cria credencial; na sessão, insere, lê e altera só atividade, prazo de inatividade e encerramento. Sessões antigas não são apagadas.
 
-## Modos educacionais (DEV-006)
+## Modos educacionais (DEV-006, DEV-022)
 
-`src/education/` é domínio puro: não importa NestJS, HTTP nem Prisma. Os identificadores de defeito são opacos (`d-` + 16 hexadecimais) e não descrevem o defeito. Presets de laboratório são indexados pelo SHA-256 de um código de laboratório: o código nunca fica no repositório, e o hash não é autorização.
+`src/education/` é domínio puro: não importa NestJS, HTTP nem Prisma, e ainda não é usado por outro módulo (sem persistência, rota ou variável de ambiente). Os identificadores de defeito são opacos (`d-` + 16 hexadecimais) e não descrevem o defeito. Presets de laboratório são indexados pelo SHA-256 de um código de laboratório: o código nunca fica no repositório, e o hash não é autorização.
 
-- `educational-mode.ts`: tipos (modo, preset, ambiente, ator, configuração), erros tipados e parsing estrito de entradas `unknown`, inclusive do código de laboratório (`A-Z`, `0-9` e `-`, 8 a 32 caracteres). As mensagens de erro nunca trazem o valor recebido, o código nem o hash.
-- `defect-catalog.ts`: `DEFECT_CATALOG`, **vazio** (nenhum defeito executável), e `validateCatalog`, que exige IDs opacos, hashes SHA-256 válidos e presets coerentes.
-- `educational-policy.ts`: política de segurança (`affectsSecurity` nunca em `SHARED`), resolução (`STUDENT/ALL` calculado sobre o catálogo vigente), default `STUDENT/ALL`, leitura isolada por workspace (a leitura de um preset de laboratório indica só o tipo, sem o hash) e alteração só pelo facilitador do próprio workspace.
+- **Padrão sem defeitos:** workspace sem configuração resolve `STUDENT` com preset `NONE`, revisão 0. `ALL` e `LAB` só valem escritos na alteração; `STUDENT` sem preset é rejeitado; `CONTROLLED` começa vazio.
+- **Quem lê e altera:** o ator é o acesso confirmado pela autorização (`WorkspaceAccess`). Só `FACILITATOR` do próprio workspace lê ou altera, conferido antes de interpretar o conteúdo; `CUSTOMER` é recusado.
+- **Catálogo (`defect-catalog.ts`):** versão `AAAA.MM.N`, lista pública de operações (`OPERATION_KEYS`, vazia até existirem casos de uso que as declarem) e, por defeito, operações afetadas e incompatibilidades simétricas. `validateCatalog` recusa o que estiver fora disso e presets com par incompatível. O catálogo vigente é **vazio**: zero defeitos executáveis.
+- **Política (`educational-policy.ts`):** `affectsSecurity` nunca em `SHARED`; resultado na ordem do catálogo, imutável; combinação incompatível é rejeitada (sem precedência); cada alteração cria a revisão seguinte com a versão do catálogo; revisão criada com outra versão do catálogo não ativa nada (`stale`).
+- **Por operação:** `isDefectActive(resolvida, operação, defeito, catálogo)` só é verdadeiro para defeito resolvido no workspace e declarado para a operação; operação desconhecida é erro.
+- **Mensagens:** citam o campo e a regra, nunca o valor recebido, o código nem o hash.
 
-Ainda não há endpoint, persistência nem variável de ambiente, porque dependem de PD-03 (identidade e workspace). O papel e o workspace do ator devem vir da autorização validada, nunca do payload. Os testes ficam em `test/unit/education/`. O catálogo fictício `fixture-catalog.ts` só existe nos testes, com IDs e códigos aleatórios que não correspondem a nenhum laboratório.
+Os testes ficam em `test/unit/education/`, com catálogo e operações fictícios (`fixture-catalog.ts`) que só existem nos testes e não correspondem a nenhum laboratório.
 
 ## Execução financeira (DEV-010)
 

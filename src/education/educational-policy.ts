@@ -1,5 +1,5 @@
-// Política de segurança, resolução e alteração da configuração educacional por workspace.
-import type { DefectCatalog, DefectDefinition } from './defect-catalog.js';
+// Política de segurança, resolução, alteração e avaliação por operação da configuração educacional.
+import { type DefectCatalog, type DefectDefinition, hasIncompatiblePair } from './defect-catalog.js';
 import {
   type Actor,
   EducationalAuthorizationError,
@@ -7,46 +7,68 @@ import {
   type EnvironmentKind,
   InvalidEducationalConfigError,
   parseConfigChange,
+  parseOperation,
   PRESET_ALL,
+  PRESET_NONE,
   type Preset,
   parseWorkspaceId,
   type WorkspaceEducationalConfig,
 } from './educational-mode.js';
 
 /** Visão de leitura do preset: indica o tipo, sem expor o hash do código. */
-export type ResolvedPreset = { readonly kind: 'ALL' } | { readonly kind: 'LAB' };
+export type ResolvedPreset = { readonly kind: 'NONE' } | { readonly kind: 'ALL' } | { readonly kind: 'LAB' };
 
 export interface ResolvedEducationalConfig {
   readonly workspaceId: string;
+  readonly revision: number;
+  readonly catalogVersion: string;
+  /** A revisão foi criada com outra versão do catálogo: nenhum defeito vale até nova escolha. */
+  readonly stale: boolean;
   readonly mode: EducationalMode;
   readonly preset: ResolvedPreset | null;
-  /** Defeitos efetivamente executáveis. Com o catálogo atual, sempre vazio. */
+  /** Defeitos efetivamente executáveis, na ordem do catálogo. Com o catálogo atual, sempre vazio. */
   readonly enabledDefectIds: readonly string[];
 }
 
 /** Segurança em ambiente compartilhado prevalece sobre qualquer modo ou preset. */
-export function isDefectAllowed(defect: DefectDefinition, environment: EnvironmentKind): boolean {
+export function isDefectAllowed(defect: Pick<DefectDefinition, 'affectsSecurity' | 'allowedEnvironments'>, environment: EnvironmentKind): boolean {
   if (environment === 'SHARED' && defect.affectsSecurity) {
     return false;
   }
   return defect.allowedEnvironments.includes(environment);
 }
 
-/** Default de workspace sem configuração: STUDENT com preset ALL (ADR 006). */
-export function defaultWorkspaceConfig(workspaceId: string): WorkspaceEducationalConfig {
-  return Object.freeze({ workspaceId: parseWorkspaceId(workspaceId), mode: 'STUDENT', preset: PRESET_ALL });
+/** Workspace sem configuração: comportamento correto, sem defeitos (ADR 009). */
+export function defaultWorkspaceConfig(workspaceId: string, catalog: DefectCatalog): WorkspaceEducationalConfig {
+  return Object.freeze({
+    workspaceId: parseWorkspaceId(workspaceId),
+    revision: 0,
+    catalogVersion: catalog.version,
+    mode: 'STUDENT',
+    preset: PRESET_NONE,
+  });
 }
 
 function candidateDefectIds(config: WorkspaceEducationalConfig, catalog: DefectCatalog): readonly string[] {
   if (config.mode === 'CONTROLLED') {
     return config.enabledDefectIds;
   }
-  if (config.preset.kind === 'ALL') {
-    // ALL é calculado sobre o catálogo vigente: defeitos futuros permitidos entram automaticamente.
-    return catalog.defects.map((defect) => defect.id);
+  switch (config.preset.kind) {
+    case 'NONE':
+      return [];
+    case 'ALL':
+      // Calculado sobre o catálogo vigente, limitado pela política do ambiente.
+      return catalog.defects.map((defect) => defect.id);
+    case 'LAB': {
+      const { codeHash } = config.preset;
+      return catalog.labPresets.find((lab) => lab.codeHash === codeHash)?.defectIds ?? [];
+    }
   }
-  const { codeHash } = config.preset;
-  return catalog.labPresets.find((lab) => lab.codeHash === codeHash)?.defectIds ?? [];
+}
+
+function permitted(ids: Iterable<string>, catalog: DefectCatalog, environment: EnvironmentKind): readonly string[] {
+  const candidates = new Set(ids);
+  return catalog.defects.filter((defect) => candidates.has(defect.id) && isDefectAllowed(defect, environment)).map((defect) => defect.id);
 }
 
 export function resolveEnabledDefects(
@@ -54,34 +76,44 @@ export function resolveEnabledDefects(
   catalog: DefectCatalog,
   environment: EnvironmentKind,
 ): readonly string[] {
-  const candidates = new Set(candidateDefectIds(config, catalog));
-  return Object.freeze(
-    catalog.defects
-      .filter((defect) => candidates.has(defect.id) && isDefectAllowed(defect, environment))
-      .map((defect) => defect.id),
-  );
+  if (config.catalogVersion !== catalog.version) {
+    return Object.freeze([]);
+  }
+  return Object.freeze(permitted(candidateDefectIds(config, catalog), catalog, environment));
 }
 
 function readPreset(preset: Preset): ResolvedPreset {
-  return preset.kind === 'ALL' ? PRESET_ALL : Object.freeze({ kind: 'LAB' });
+  return preset.kind === 'LAB' ? Object.freeze({ kind: 'LAB' }) : preset.kind === 'ALL' ? PRESET_ALL : PRESET_NONE;
 }
 
-function assertSameWorkspace(actor: Actor, config: WorkspaceEducationalConfig): void {
-  if (actor.workspaceId !== config.workspaceId) {
+/** Só o facilitador do próprio workspace, conferido antes de qualquer conteúdo. */
+function assertFacilitatorOf(actor: Actor, workspaceId: string): void {
+  if (actor.role !== 'FACILITATOR') {
+    throw new EducationalAuthorizationError('FACILITATOR_REQUIRED');
+  }
+  if (actor.workspaceId !== workspaceId) {
     throw new EducationalAuthorizationError('WORKSPACE_MISMATCH');
   }
 }
 
-/** Leitura da configuração resolvida: qualquer papel, somente do próprio workspace. */
+/** Leitura da configuração resolvida: somente o facilitador do próprio workspace. */
 export function resolveForWorkspace(
   actor: Actor,
   config: WorkspaceEducationalConfig,
   catalog: DefectCatalog,
   environment: EnvironmentKind,
 ): ResolvedEducationalConfig {
-  assertSameWorkspace(actor, config);
+  assertFacilitatorOf(actor, config.workspaceId);
+  return resolve(config, catalog, environment);
+}
+
+/** Configuração resolvida para uso interno (casos de uso), já no escopo do workspace autorizado. */
+export function resolve(config: WorkspaceEducationalConfig, catalog: DefectCatalog, environment: EnvironmentKind): ResolvedEducationalConfig {
   return Object.freeze({
     workspaceId: config.workspaceId,
+    revision: config.revision,
+    catalogVersion: config.catalogVersion,
+    stale: config.catalogVersion !== catalog.version,
     mode: config.mode,
     preset: config.mode === 'STUDENT' ? readPreset(config.preset) : null,
     enabledDefectIds: resolveEnabledDefects(config, catalog, environment),
@@ -89,9 +121,8 @@ export function resolveForWorkspace(
 }
 
 /**
- * Alteração da configuração: somente o facilitador do próprio workspace. Autorização é
- * verificada antes de interpretar o conteúdo; defeitos não permitidos no ambiente são rejeitados.
- * Retorna nova configuração; a atual não é modificada.
+ * Alteração da configuração: somente o facilitador do próprio workspace. Rejeita defeitos não
+ * permitidos no ambiente e combinações incompatíveis. Cria a revisão seguinte; a atual não muda.
  */
 export function applyConfigChange(
   actor: Actor,
@@ -100,10 +131,7 @@ export function applyConfigChange(
   catalog: DefectCatalog,
   environment: EnvironmentKind,
 ): WorkspaceEducationalConfig {
-  if (actor.role !== 'FACILITATOR') {
-    throw new EducationalAuthorizationError('FACILITATOR_REQUIRED');
-  }
-  assertSameWorkspace(actor, current);
+  assertFacilitatorOf(actor, current.workspaceId);
   const change = parseConfigChange(rawChange, catalog);
   if (change.mode === 'CONTROLLED') {
     const blocked = change.enabledDefectIds.some((id) => {
@@ -113,6 +141,23 @@ export function applyConfigChange(
     if (blocked) {
       throw new InvalidEducationalConfigError('enabledDefectIds', 'contém defeito não permitido neste ambiente');
     }
+    if (hasIncompatiblePair(change.enabledDefectIds, catalog)) {
+      throw new InvalidEducationalConfigError('enabledDefectIds', 'contém defeitos incompatíveis entre si');
+    }
+  } else if (change.preset.kind === 'ALL' && hasIncompatiblePair(permitted(catalog.defects.map((d) => d.id), catalog, environment), catalog)) {
+    throw new InvalidEducationalConfigError('preset', 'ALL reúne defeitos incompatíveis neste ambiente');
   }
-  return Object.freeze({ workspaceId: current.workspaceId, ...change });
+  return Object.freeze({ workspaceId: current.workspaceId, revision: current.revision + 1, catalogVersion: catalog.version, ...change });
+}
+
+/**
+ * O defeito está ativo nesta operação? Só se resolvido para o workspace, na versão vigente do
+ * catálogo, e declarado para a operação. Operação desconhecida é erro.
+ */
+export function isDefectActive(resolved: ResolvedEducationalConfig, rawOperation: unknown, defectId: string, catalog: DefectCatalog): boolean {
+  const operation = parseOperation(rawOperation, catalog);
+  if (resolved.catalogVersion !== catalog.version || !resolved.enabledDefectIds.includes(defectId)) {
+    return false;
+  }
+  return catalog.defects.some((defect) => defect.id === defectId && defect.operations.includes(operation));
 }

@@ -3,6 +3,7 @@
 // SHA-256 do código do laboratório. Mensagens de erro nunca exibem valores recebidos,
 // códigos ou hashes.
 import { createHash } from 'node:crypto';
+import type { WorkspaceAccess } from '../identity/domain/workspace-access.js';
 import type { DefectCatalog } from './defect-catalog.js';
 
 export const EDUCATIONAL_MODES = ['STUDENT', 'CONTROLLED'] as const;
@@ -12,30 +13,37 @@ export type EducationalMode = (typeof EDUCATIONAL_MODES)[number];
 export const ENVIRONMENT_KINDS = ['ISOLATED', 'SHARED'] as const;
 export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
 
-export const ACTOR_ROLES = ['STUDENT', 'FACILITATOR'] as const;
-export type ActorRole = (typeof ACTOR_ROLES)[number];
-
 /** Código de laboratório: A-Z, 0-9 e hífen, 8 a 32 caracteres, comparação exata. */
 export const LAB_CODE_PATTERN = /^[A-Z0-9-]{8,32}$/;
 /** SHA-256 em hexadecimal minúsculo. */
 export const CODE_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
-export type Preset = { readonly kind: 'ALL' } | { readonly kind: 'LAB'; readonly codeHash: string };
+/** NONE: comportamento correto (padrão). ALL e LAB só por escolha explícita do facilitador. */
+export type Preset =
+  | { readonly kind: 'NONE' }
+  | { readonly kind: 'ALL' }
+  | { readonly kind: 'LAB'; readonly codeHash: string };
 
+export const PRESET_NONE: Preset = Object.freeze({ kind: 'NONE' });
 export const PRESET_ALL: Preset = Object.freeze({ kind: 'ALL' });
 
 /**
- * Quem age e em qual workspace. Deve vir da autorização validada (PD-03),
- * nunca de parâmetros enviados pelo cliente.
+ * Quem age e em qual workspace: o acesso confirmado pela autorização (identidade, workspace e
+ * papel atuais), nunca parâmetros enviados pelo cliente.
  */
-export interface Actor {
-  readonly role: ActorRole;
+export type Actor = WorkspaceAccess;
+
+interface Revisioned {
   readonly workspaceId: string;
+  /** 0 = padrão sem configuração; cada alteração aceita soma 1. */
+  readonly revision: number;
+  /** Versão do catálogo vigente quando a revisão foi criada. */
+  readonly catalogVersion: string;
 }
 
 export type WorkspaceEducationalConfig =
-  | { readonly workspaceId: string; readonly mode: 'STUDENT'; readonly preset: Preset }
-  | { readonly workspaceId: string; readonly mode: 'CONTROLLED'; readonly enabledDefectIds: readonly string[] };
+  | (Revisioned & { readonly mode: 'STUDENT'; readonly preset: Preset })
+  | (Revisioned & { readonly mode: 'CONTROLLED'; readonly enabledDefectIds: readonly string[] });
 
 /** Alteração pedida por um facilitador: a configuração sem o workspace (que vem do ator). */
 export type EducationalConfigChange =
@@ -133,15 +141,15 @@ export function parsePreset(raw: unknown, catalog: DefectCatalog): Preset {
   if (!isPlainObject(raw)) {
     throw new InvalidEducationalConfigError('preset', 'deve ser um objeto { kind }');
   }
-  if (raw['kind'] === 'ALL') {
+  if (raw['kind'] === 'NONE' || raw['kind'] === 'ALL') {
     assertOnlyKeys(raw, ['kind'], 'preset');
-    return PRESET_ALL;
+    return raw['kind'] === 'NONE' ? PRESET_NONE : PRESET_ALL;
   }
   if (raw['kind'] === 'LAB') {
     assertOnlyKeys(raw, ['kind', 'code'], 'preset');
     return resolveLabPreset(raw['code'], catalog);
   }
-  throw new InvalidEducationalConfigError('preset.kind', 'deve ser ALL ou LAB');
+  throw new InvalidEducationalConfigError('preset.kind', 'deve ser NONE, ALL ou LAB');
 }
 
 function parseDefectIds(raw: unknown, catalog: DefectCatalog): readonly string[] {
@@ -172,11 +180,23 @@ export function parseConfigChange(raw: unknown, catalog: DefectCatalog): Educati
   const mode = parseMode(raw['mode']);
   if (mode === 'STUDENT') {
     assertOnlyKeys(raw, ['mode', 'preset'], 'alteração STUDENT');
-    const preset = raw['preset'] === undefined ? PRESET_ALL : parsePreset(raw['preset'], catalog);
+    // Sem padrão implícito: ALL ou laboratório só por escolha escrita.
+    if (raw['preset'] === undefined) {
+      throw new InvalidEducationalConfigError('preset', 'é obrigatório no modo STUDENT');
+    }
+    const preset = parsePreset(raw['preset'], catalog);
     return Object.freeze({ mode, preset });
   }
   assertOnlyKeys(raw, ['mode', 'enabledDefectIds'], 'alteração CONTROLLED');
   const enabledDefectIds =
     raw['enabledDefectIds'] === undefined ? Object.freeze([]) : parseDefectIds(raw['enabledDefectIds'], catalog);
   return Object.freeze({ mode, enabledDefectIds });
+}
+
+/** Operação conhecida pelo catálogo. Desconhecida é erro, nunca "inativa". */
+export function parseOperation(raw: unknown, catalog: DefectCatalog): string {
+  if (typeof raw !== 'string' || !catalog.operations.includes(raw)) {
+    throw new InvalidEducationalConfigError('operação', 'deve ser uma operação do catálogo');
+  }
+  return raw;
 }
