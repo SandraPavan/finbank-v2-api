@@ -8,6 +8,7 @@ import { EnrollmentModule } from './enrollment/enrollment.module.js';
 import { HealthModule } from './health/health.module.js';
 import { HttpModule } from './http/http.module.js';
 import { IdentityModule } from './identity/identity.module.js';
+import { OnboardingModule } from './onboarding/onboarding.module.js';
 import { PaymentExecutionModule } from './payment-execution/payment-execution.module.js';
 import { PersistenceModule } from './persistence/persistence.module.js';
 import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
@@ -28,6 +29,7 @@ export class AppModule {
         HealthModule,
         HttpModule,
         IdentityModule,
+        OnboardingModule.forRoot(authentication, config),
         PaymentExecutionModule,
         ReconciliationModule,
         SimulationClockModule,

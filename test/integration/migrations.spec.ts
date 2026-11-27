@@ -47,6 +47,7 @@ describe('migrações Prisma em banco descartável', () => {
         'enum IdentityStatus',
         'enum MembershipRole',
         'enum MembershipStatus',
+        'enum OnboardingStatus',
         'enum OperationType',
         'enum PaymentModality',
         'enum SessionScope',
@@ -57,6 +58,7 @@ describe('migrações Prisma em banco descartável', () => {
         'model AuthenticationControl',
         'model EducationalConfigRevision',
         'model LedgerEntry',
+        'model OnboardingRequest',
         'model PasswordCredential',
         'model PaymentOperation',
         'model SimulationClockRevision',
@@ -88,6 +90,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261130000000_payment_states_credit', finished: true },
       { migration_name: '20261201000000_simulation_clock', finished: true },
       { migration_name: '20261202000000_workspace_modality_enrollment', finished: true },
+      { migration_name: '20261203000000_onboarding_request', finished: true },
     ]);
   });
 
@@ -96,7 +99,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(14);
+    expect(rows[0]?.total).toBe(15);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -122,6 +125,7 @@ describe('migrações Prisma em banco descartável', () => {
       'authentication_control',
       'educational_config_revision',
       'ledger_entry',
+      'onboarding_request',
       'password_credential',
       'payment_operation',
       'simulation_clock_revision',
@@ -151,6 +155,12 @@ describe('migrações Prisma em banco descartável', () => {
       'educational_config_revision_shape',
       'educational_config_revision_values',
       'ledger_entry_amount_nonzero',
+      'onboarding_request_cpf_format',
+      'onboarding_request_dates',
+      'onboarding_request_email_normalized',
+      'onboarding_request_name_length',
+      'onboarding_request_password_hash_format',
+      'onboarding_request_phone_format',
       'password_credential_hash_format',
       'payment_operation_amount_positive',
       'payment_operation_distinct_accounts',
@@ -213,6 +223,12 @@ describe('migrações Prisma em banco descartável', () => {
        WHERE indexname IN ('user_identity_customer_email', 'user_identity_facilitator_email') ORDER BY indexname`;
     expect(emails[0]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id, email\) WHERE \(profile = 'CUSTOMER'/);
     expect(emails[1]?.indexdef).toMatch(/UNIQUE INDEX .*\(email\) WHERE \(profile = 'FACILITATOR'/);
+
+    const onboarding = await db.client.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+       WHERE indexname IN ('onboarding_request_workspace_cpf', 'onboarding_request_workspace_email') ORDER BY indexname`;
+    expect(onboarding[0]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id, cpf\) WHERE \(status <> 'REJECTED'/);
+    expect(onboarding[1]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id, email\) WHERE \(status <> 'REJECTED'/);
 
     const reversalLink = await db.client.$queryRaw<{ indexdef: string }[]>`
       SELECT indexdef FROM pg_indexes WHERE indexname = 'payment_operation_workspace_id_reverses_operation_id_key'`;

@@ -117,14 +117,15 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(23);
+      expect(routes).toHaveLength(24);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
       }
       const open = routes.filter((r) => r.policy?.kind === 'PUBLIC').map((r) => r.path).sort();
       expect(open).toEqual(['api/v1/openapi.json', 'health/live', 'health/ready']);
-      expect(routes.filter((r) => r.policy?.kind === 'AUTHENTICATION').every((r) => r.path.startsWith('api/v1/auth/'))).toBe(true);
+      // Pré-autenticação: rotas de autenticação e a submissão do onboarding, que não abre sessão.
+      expect(routes.filter((r) => r.policy?.kind === 'AUTHENTICATION').every((r) => r.path.startsWith('api/v1/auth/') || r.path.startsWith('api/v1/onboarding/requests'))).toBe(true);
     });
 
     it('rota sem política é negada até com sessão válida', async () => {

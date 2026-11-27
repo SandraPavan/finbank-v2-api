@@ -8,6 +8,7 @@
 // DEV-024: estados de workspace e conta, crédito educacional e modalidade.
 // DEV-025: relógio simulado em revisões.
 // DEV-026: modalidade do workspace e código de inscrição em revisões.
+// DEV-027: solicitações de abertura (onboarding).
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -100,6 +101,14 @@ enum WorkspaceModality {
   @@map("workspace_modality")
 }
 
+enum OnboardingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("onboarding_status")
+}
+
 enum PaymentModality {
   PIX_KEY
   PIX_COPY_PASTE
@@ -124,6 +133,7 @@ model Workspace {
   clock       SimulationClockRevision[]
   modality    WorkspaceModality           @default(ISOLATED)
   enrollment  WorkspaceEnrollmentCode[]
+  onboarding  OnboardingRequest[]
 
   @@map("workspace")
 }
@@ -366,4 +376,25 @@ model WorkspaceEnrollmentCode {
 
   @@id([workspaceId, revision])
   @@map("workspace_enrollment_code")
+}
+
+/// Solicitação de abertura. CPF, telefone e e-mail normalizados; só o hash da senha.
+/// Unicidade de CPF e e-mail por workspace entre não rejeitadas em índices parciais da migração.
+model OnboardingRequest {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String           @map("workspace_id") @db.Uuid
+  status        OnboardingStatus
+  name          String           @db.VarChar(120)
+  cpf           String           @db.Char(11)
+  birthDate     DateTime         @map("birth_date") @db.Date
+  email         String           @db.VarChar(254)
+  phone         String           @db.VarChar(11)
+  passwordHash  String           @map("password_hash") @db.VarChar(160)
+  businessDate  DateTime         @map("business_date") @db.Date
+  clockRevision Int              @map("clock_revision")
+  createdAt     DateTime         @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([workspaceId, createdAt])
+  @@map("onboarding_request")
 }

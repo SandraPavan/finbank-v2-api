@@ -196,13 +196,14 @@ describe('arquitetura da autorização', () => {
     }
   });
 
-  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração, da configuração educacional, da inscrição e do relógio', () => {
+  it('nenhum outro módulo depende dela, salvo a raiz e as rotas de administração, da configuração educacional, da inscrição, do onboarding e do relógio', () => {
     const users = files.filter((f) => !f.path.startsWith('access/') && imports(f.text).some((s) => /\/access\//.test(s)));
     expect(users.map((f) => f.path).sort()).toEqual([
       'administration/http/facilitator-customers.controller.ts',
       'app.module.ts',
       'education/http/educational-config.controller.ts',
       'enrollment/http/enrollment.controller.ts',
+      'onboarding/http/onboarding.controller.ts',
       'simulation-clock/http/simulation-clock.controller.ts',
     ]);
   });
@@ -315,7 +316,7 @@ describe('arquitetura do relógio simulado', () => {
 
   it('autenticação, sessões e credenciais não dependem do relógio simulado', () => {
     const users = files.filter((f) => !f.path.startsWith('simulation-clock/') && imports(f.text).some((s) => /simulation-clock/.test(s)));
-    expect(users.map((f) => f.path).sort()).toEqual(['app.module.ts', 'http/openapi.ts']);
+    expect(users.map((f) => f.path).sort()).toEqual(['app.module.ts', 'http/openapi.ts', 'onboarding/onboarding.module.ts']);
   });
 });
 
@@ -351,8 +352,44 @@ describe('arquitetura da inscrição', () => {
     }
   });
 
-  it('só a raiz o compõe; o adaptador não lê nem devolve o hash fora do próprio workspace', () => {
+  it('só a raiz e a composição do onboarding o usam', () => {
     const users = files.filter((f) => !f.path.startsWith('enrollment/') && imports(f.text).some((s) => /\/enrollment\//.test(s)));
+    expect(users.map((f) => f.path).sort()).toEqual(['app.module.ts', 'onboarding/onboarding.module.ts']);
+  });
+});
+
+describe('arquitetura do onboarding', () => {
+  const module = files.filter((f) => f.path.startsWith('onboarding/'));
+
+  it('o domínio é puro: só valida formatos, sem relógio real, fuso, rede ou logs', () => {
+    const domain = module.filter((f) => f.path.startsWith('onboarding/domain/'));
+    expect(domain.map((f) => f.path)).toEqual(['onboarding/domain/onboarding-request.ts']);
+    for (const file of domain) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).toMatch(/^\.\.\/\.\.\/identity\/domain\/email\.js$|^\.\.\/\.\.\/authentication\/domain\/password-policy\.js$/);
+      }
+      expect(file.text, file.path).not.toMatch(/new Date|Date\.now|Intl\.|process\.env|console\.|Logger/);
+    }
+  });
+
+  it('a aplicação depende só de portas, sem NestJS, Prisma, Node, HTTP ou outros módulos', () => {
+    const application = module.filter((f) => f.path.startsWith('onboarding/application/'));
+    expect(application.length).toBeGreaterThan(0);
+    for (const file of application) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).toMatch(/^\.\.\/domain\//);
+      }
+    }
+  });
+
+  it('não escreve saldos, identidades, contas nem registra logs; só a raiz o compõe', () => {
+    for (const file of module) {
+      expect(imports(file.text).join(' '), file.path).not.toMatch(/payment-execution|reconciliation|education|administration/);
+      expect(file.text, file.path).not.toMatch(FINANCIAL_WRITE);
+      expect(file.text, file.path).not.toMatch(/INSERT INTO "(user_identity|password_credential|workspace|account)"/);
+      expect(file.text, file.path).not.toMatch(/console\.|Logger/);
+    }
+    const users = files.filter((f) => !f.path.startsWith('onboarding/') && imports(f.text).some((s) => /\/onboarding\//.test(s)));
     expect(users.map((f) => f.path)).toEqual(['app.module.ts']);
   });
 });

@@ -235,6 +235,22 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/onboarding/requests': {
+      post: {
+        operationId: 'submitOnboardingRequest',
+        summary: 'Submete a solicitação de abertura; gravada PENDING. Sem sessão: CSRF do contexto pré-autenticado',
+        security: PREAUTH_SECURITY,
+        parameters: CSRF_PARAMETER,
+        requestBody: { required: true, content: json('OnboardingRequest') },
+        responses: {
+          201: { description: 'Solicitação gravada', headers: CORRELATION, content: json('OnboardingSubmitted') },
+          ...problems(
+            ...POST, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED', 'ONBOARDING_DUPLICATE', 'ENROLLMENT_CODE_REQUIRED',
+            'ENROLLMENT_CODE_INVALID', 'ONBOARDING_UNDERAGE', 'RATE_LIMIT_EXCEEDED',
+          ),
+        },
+      },
+    },
     '/api/v1/facilitator/workspaces/{workspaceId}/clock': {
       get: {
         operationId: 'getSimulationClock',
@@ -405,6 +421,22 @@ export const OPENAPI_DOCUMENT = {
         ...ENROLLMENT_FIELDS,
         code: { type: 'string', pattern: '^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$' },
       }),
+      OnboardingRequest: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['alias', 'name', 'cpf', 'birthDate', 'email', 'phone', 'password'],
+        properties: {
+          alias: text,
+          enrollmentCode: { type: ['string', 'null'], description: 'Exigido em SHARED; em ISOLATED, só se houver código vigente' },
+          name: { type: 'string', description: '2 a 120 caracteres; espaços repetidos viram um' },
+          cpf: { type: 'string', description: '11 dígitos, com ou sem máscara 000.000.000-00; dígitos verificadores conferidos' },
+          birthDate: { type: 'string', description: 'YYYY-MM-DD; 18 anos completos na data simulada do workspace' },
+          email: text,
+          phone: { type: 'string', description: 'DDD e número, 10 ou 11 dígitos; +55 opcional' },
+          password: { type: 'string', description: '12 a 128 caracteres; guarda-se só o hash' },
+        },
+      },
+      OnboardingSubmitted: fields({ requestId: { type: 'string', format: 'uuid' }, status: { type: 'string', enum: ['PENDING'] } }),
       SimulationClock: fields({
         workspaceId: { type: 'string', format: 'uuid' },
         date: BUSINESS_DATE,
