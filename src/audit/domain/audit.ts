@@ -25,10 +25,12 @@ export type AuditOperation =
   | 'SIMULATION_CLOCK_CHANGE'
   | 'ENROLLMENT_CODE_ISSUE'
   | 'ENROLLMENT_CODE_REVOKE'
-  | 'ONBOARDING_APPROVE';
+  | 'ONBOARDING_APPROVE'
+  | 'ONBOARDING_REJECT'
+  | 'ONBOARDING_POLICY_CHANGE';
 
 /** Em vínculos, o recurso é a identidade do facilitador; o workspace completa o par. */
-export type AuditResource = 'WORKSPACE' | 'IDENTITY' | 'MEMBERSHIP' | 'EDUCATIONAL_CONFIG_REVISION' | 'SIMULATION_CLOCK_REVISION' | 'ENROLLMENT_CODE_REVISION' | 'ONBOARDING_REQUEST';
+export type AuditResource = 'WORKSPACE' | 'IDENTITY' | 'MEMBERSHIP' | 'EDUCATIONAL_CONFIG_REVISION' | 'SIMULATION_CLOCK_REVISION' | 'ENROLLMENT_CODE_REVISION' | 'ONBOARDING_REQUEST' | 'ONBOARDING_POLICY_REVISION';
 
 /** Registro de uma operação. Só códigos e identificadores: nunca senha, e-mail ou segredo. */
 export interface AuditEntry {

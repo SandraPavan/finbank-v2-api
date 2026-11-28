@@ -10,7 +10,9 @@ import { PrismaService } from '../persistence/prisma.service.js';
 import { SimulationClockService } from '../simulation-clock/application/simulation-clock.service.js';
 import { SimulationClockModule } from '../simulation-clock/simulation-clock.module.js';
 import { PrismaOnboardingStore } from './adapters/prisma-onboarding.store.js';
+import { OnboardingAdministrationService } from './application/onboarding-administration.service.js';
 import { OnboardingService } from './application/onboarding.service.js';
+import { OnboardingAdministrationController } from './http/onboarding-administration.controller.js';
 import { OnboardingController } from './http/onboarding.controller.js';
 
 /** Solicitação de abertura: validações, inscrição, idade pela data simulada e gravação PENDING. */
@@ -21,7 +23,7 @@ export class OnboardingModule {
     return {
       module: OnboardingModule,
       imports: [authentication, EnrollmentModule, SimulationClockModule],
-      controllers: [OnboardingController],
+      controllers: [OnboardingController, OnboardingAdministrationController],
       providers: [
         {
           provide: OnboardingService,
@@ -35,6 +37,11 @@ export class OnboardingModule {
               hasher: new Argon2PasswordHasher(),
             }),
           inject: [PrismaService, EnrollmentService, SimulationClockService],
+        },
+        {
+          provide: OnboardingAdministrationService,
+          useFactory: (prisma: PrismaService) => new OnboardingAdministrationService(new PrismaOnboardingStore(prisma.client)),
+          inject: [PrismaService],
         },
       ],
     };

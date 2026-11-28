@@ -117,7 +117,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(24);
+      expect(routes).toHaveLength(30);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
@@ -321,7 +321,32 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       'delete /api/v1/facilitator/workspaces/{workspaceId}/enrollment-code': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'patch /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'get /api/v1/facilitator/workspaces/{workspaceId}/onboarding-policy': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'patch /api/v1/facilitator/workspaces/{workspaceId}/onboarding-policy': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'get /api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests/{requestId}/approve': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests/{requestId}/reject': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
     };
+    /** Uma solicitação PENDING por rota e workspace, preparada pelo dono, para as rotas de solicitação. */
+    const pending = new Map<string, string>();
+    async function pendingFor(route: string, workspaceId: string): Promise<string> {
+      const key = `${route}|${workspaceId}`;
+      const known = pending.get(key);
+      if (known !== undefined) {
+        return known;
+      }
+      const cpf = String(Math.floor(Math.random() * 1e11)).padStart(11, '0');
+      const row = await h.db.client.onboardingRequest.create({
+        data: {
+          workspaceId, status: 'PENDING', name: 'Pessoa Fictícia', cpf, birthDate: new Date('1990-01-01'), email: `p-${randomUUID()}@example.test`,
+          phone: '11987654321', passwordHash: `$argon2id$v=19$m=19456,t=2,p=1$${'A'.repeat(22)}$${'A'.repeat(43)}`,
+          businessDate: new Date('2026-01-01'), clockRevision: 0,
+        },
+        select: { id: true },
+      });
+      pending.set(key, row.id);
+      return row.id;
+    }
     const scoped = Object.entries(OPENAPI_DOCUMENT.paths).flatMap(([path, item]) =>
       path.includes('{workspaceId}') ? Object.keys(item).map((m) => `${m} ${path}`) : [],
     );
@@ -336,15 +361,30 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       for (const actor of Object.keys(people) as Actor[]) {
         const browser = await enter(people[actor]);
         for (const [i, target] of [a, b].entries()) {
-          const url = path.replace('/api/v1', '').replace('{workspaceId}', target.workspaceId ?? '').replace('{customerId}', target.id);
+          const requestId = path.includes('onboarding-requests') ? await pendingFor(route, target.workspaceId ?? '') : '';
+          const url = path
+            .replace('/api/v1', '')
+            .replace('{workspaceId}', target.workspaceId ?? '')
+            .replace('{customerId}', target.id)
+            .replace('{requestId}', requestId);
           const seen = method === 'patch' ? await browser.api('GET', url) : undefined;
           const base = typeof seen?.body['revision'] === 'number' ? seen.body['revision'] : 0;
-          const change = path.includes('clock') ? { date: `2030-0${i + 1}-15` } : { configuration: { mode: 'STUDENT', preset: { kind: 'NONE' } } };
+          const change = path.includes('clock')
+            ? { date: `2030-0${i + 1}-15` }
+            : path.includes('onboarding-policy')
+              ? { mode: 'MANUAL' }
+              : { configuration: { mode: 'STUDENT', preset: { kind: 'NONE' } } };
           const body = method === 'patch' ? { baseRevision: base, ...change } : undefined;
           const reply = await browser.api(method.toUpperCase() as Method, url, body);
           expect(reply.status, `${actor} em ${i === 0 ? 'A' : 'B'}`).toBe(expected[actor][i]);
           const own = reply.status === 200;
-          const marks = path.includes('customers') ? [target.id] : /flags|clock|enrollment/.test(path) ? [target.workspaceId ?? '-'] : [target.workspaceId ?? '-', target.alias ?? '-'];
+          const marks = path.includes('customers')
+            ? [target.id]
+            : path.includes('onboarding-requests')
+              ? [requestId]
+              : /flags|clock|enrollment|onboarding-policy/.test(path)
+                ? [target.workspaceId ?? '-']
+                : [target.workspaceId ?? '-', target.alias ?? '-'];
           for (const mark of marks) {
             expect(reply.text.includes(mark)).toBe(own);
           }

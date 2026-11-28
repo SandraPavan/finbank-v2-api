@@ -203,6 +203,7 @@ describe('arquitetura da autorização', () => {
       'app.module.ts',
       'education/http/educational-config.controller.ts',
       'enrollment/http/enrollment.controller.ts',
+      'onboarding/http/onboarding-administration.controller.ts',
       'onboarding/http/onboarding.controller.ts',
       'simulation-clock/http/simulation-clock.controller.ts',
     ]);
@@ -365,21 +366,25 @@ describe('arquitetura do onboarding', () => {
 
   it('o domínio é puro: só valida formatos, sem relógio real, fuso, rede ou logs', () => {
     const domain = module.filter((f) => f.path.startsWith('onboarding/domain/'));
-    expect(domain.map((f) => f.path)).toEqual(['onboarding/domain/onboarding-request.ts']);
+    expect(domain.map((f) => f.path).sort()).toEqual([
+      'onboarding/domain/approval-policy.ts',
+      'onboarding/domain/onboarding-request.ts',
+      'onboarding/domain/status-credential.ts',
+    ]);
     for (const file of domain) {
       for (const spec of imports(file.text)) {
-        expect(spec, file.path).toMatch(/^\.\.\/\.\.\/identity\/domain\/email\.js$|^\.\.\/\.\.\/authentication\/domain\/password-policy\.js$/);
+        expect(spec, file.path).toMatch(/^\.\.\/\.\.\/identity\/domain\/email\.js$|^\.\.\/\.\.\/authentication\/domain\/password-policy\.js$|^node:crypto$/);
       }
       expect(file.text, file.path).not.toMatch(/new Date|Date\.now|Intl\.|process\.env|console\.|Logger/);
     }
   });
 
-  it('a aplicação depende só de portas, sem NestJS, Prisma, Node, HTTP ou outros módulos', () => {
+  it('a aplicação depende só de portas e do tipo de acesso confirmado, sem NestJS, Prisma, Node, HTTP ou outros módulos', () => {
     const application = module.filter((f) => f.path.startsWith('onboarding/application/'));
     expect(application.length).toBeGreaterThan(0);
     for (const file of application) {
       for (const spec of imports(file.text)) {
-        expect(spec, file.path).toMatch(/^\.\.\/domain\//);
+        expect(spec, file.path).toMatch(/^\.\.\/domain\/|^\.\.\/\.\.\/identity\/domain\/workspace-access\.js$/);
       }
     }
   });
@@ -388,7 +393,7 @@ describe('arquitetura do onboarding', () => {
     for (const file of module) {
       // A conta do cliente é aberta pelo adaptador do PaymentExecution, na transação da aprovação.
       const deps = imports(file.text).filter((s) => !(file.path === 'onboarding/adapters/prisma-onboarding.store.ts' && s === '../../payment-execution/adapters/prisma-payment-execution.store.js'));
-      expect(deps.join(' '), file.path).not.toMatch(/payment-execution|reconciliation|education|administration/);
+      expect(deps.join(' '), file.path).not.toMatch(/\/(payment-execution|reconciliation|education|administration)\//);
       expect(file.text, file.path).not.toMatch(FINANCIAL_WRITE);
       expect(file.text, file.path).not.toMatch(/INSERT INTO "(workspace|workspace_membership|account)"/);
       expect(file.text, file.path).not.toMatch(/console\.|Logger/);

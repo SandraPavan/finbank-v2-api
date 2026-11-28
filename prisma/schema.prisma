@@ -10,6 +10,7 @@
 // DEV-026: modalidade do workspace e código de inscrição em revisões.
 // DEV-027: solicitações de abertura (onboarding).
 // DEV-028: aprovação automática, cliente com conta e ator SYSTEM.
+// DEV-029: política de aprovação em revisões, credencial de consulta e decisão do facilitador.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -111,6 +112,13 @@ enum OnboardingStatus {
   @@map("onboarding_status")
 }
 
+enum OnboardingApprovalMode {
+  AUTOMATIC
+  MANUAL
+
+  @@map("onboarding_approval_mode")
+}
+
 enum PaymentModality {
   PIX_KEY
   PIX_COPY_PASTE
@@ -121,21 +129,22 @@ enum PaymentModality {
 
 /// Escopo de dados. Não representa identidade nem autorização.
 model Workspace {
-  id          String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  createdAt   DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
-  accounts    Account[]
-  operations  PaymentOperation[]
-  entries     LedgerEntry[]
-  alias       String?                     @unique @db.VarChar(40)
-  status      WorkspaceStatus             @default(ACTIVE)
-  memberships WorkspaceMembership[]
-  customers   UserIdentity[]
-  audit       AuditRecord[]
-  educational EducationalConfigRevision[]
-  clock       SimulationClockRevision[]
-  modality    WorkspaceModality           @default(ISOLATED)
-  enrollment  WorkspaceEnrollmentCode[]
-  onboarding  OnboardingRequest[]
+  id               String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt        DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  accounts         Account[]
+  operations       PaymentOperation[]
+  entries          LedgerEntry[]
+  alias            String?                     @unique @db.VarChar(40)
+  status           WorkspaceStatus             @default(ACTIVE)
+  memberships      WorkspaceMembership[]
+  customers        UserIdentity[]
+  audit            AuditRecord[]
+  educational      EducationalConfigRevision[]
+  clock            SimulationClockRevision[]
+  modality         WorkspaceModality           @default(ISOLATED)
+  enrollment       WorkspaceEnrollmentCode[]
+  onboarding       OnboardingRequest[]
+  onboardingPolicy OnboardingPolicyRevision[]
 
   @@map("workspace")
 }
@@ -223,6 +232,7 @@ model UserIdentity {
   enrollmentCodes      WorkspaceEnrollmentCode[]
   onboarding           OnboardingRequest?
   accountLinks         CustomerAccount[]
+  onboardingPolicies   OnboardingPolicyRevision[]
 
   @@unique([id, profile])
   @@unique([id, workspaceId])
@@ -387,22 +397,25 @@ model WorkspaceEnrollmentCode {
 /// Solicitação de abertura. CPF, telefone e e-mail normalizados; só o hash da senha.
 /// Unicidade de CPF e e-mail por workspace entre não rejeitadas em índices parciais da migração.
 model OnboardingRequest {
-  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId   String           @map("workspace_id") @db.Uuid
-  status        OnboardingStatus
-  name          String           @db.VarChar(120)
-  cpf           String           @db.Char(11)
-  birthDate     DateTime         @map("birth_date") @db.Date
-  email         String           @db.VarChar(254)
-  phone         String           @db.VarChar(11)
-  passwordHash  String           @map("password_hash") @db.VarChar(160)
-  businessDate  DateTime         @map("business_date") @db.Date
-  clockRevision Int              @map("clock_revision")
-  identityId    String?          @unique @map("identity_id") @db.Uuid
-  decidedAt     DateTime?        @map("decided_at") @db.Timestamptz(3)
-  identity      UserIdentity?    @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  createdAt     DateTime         @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
-  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  id                        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId               String           @map("workspace_id") @db.Uuid
+  status                    OnboardingStatus
+  name                      String           @db.VarChar(120)
+  cpf                       String           @db.Char(11)
+  birthDate                 DateTime         @map("birth_date") @db.Date
+  email                     String           @db.VarChar(254)
+  phone                     String           @db.VarChar(11)
+  passwordHash              String           @map("password_hash") @db.VarChar(160)
+  businessDate              DateTime         @map("business_date") @db.Date
+  clockRevision             Int              @map("clock_revision")
+  identityId                String?          @unique @map("identity_id") @db.Uuid
+  decidedAt                 DateTime?        @map("decided_at") @db.Timestamptz(3)
+  policyRevision            Int              @default(0) @map("policy_revision")
+  statusCredentialHash      String?          @map("status_credential_hash") @db.Char(64)
+  statusCredentialExpiresAt DateTime?        @map("status_credential_expires_at") @db.Timestamptz(3)
+  identity                  UserIdentity?    @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt                 DateTime         @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  workspace                 Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([workspaceId, createdAt])
   @@map("onboarding_request")
@@ -418,4 +431,19 @@ model CustomerAccount {
   account     Account      @relation(fields: [workspaceId, accountId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@map("customer_account")
+}
+
+/// Revisão da política de aprovação do onboarding (só inserção). A vigente é a de maior número; 0 = AUTOMATIC, nunca gravada.
+model OnboardingPolicyRevision {
+  id          String                 @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String                 @map("workspace_id") @db.Uuid
+  revision    Int
+  mode        OnboardingApprovalMode
+  createdBy   String                 @map("created_by") @db.Uuid
+  createdAt   DateTime               @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  author      UserIdentity           @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([workspaceId, revision])
+  @@map("onboarding_policy_revision")
 }

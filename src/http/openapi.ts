@@ -69,6 +69,19 @@ const customerState = (operationId: string, summary: string) => ({
   },
 });
 
+const decision = (operationId: string, summary: string) => ({
+  post: {
+    operationId,
+    summary: `${summary}. Repetir a mesma decisão devolve o estado; a oposta é 409`,
+    security: SESSION_SECURITY,
+    parameters: [{ $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/RequestId' }, ...CSRF_PARAMETER],
+    responses: {
+      200: { description: 'Estado decidido', headers: CORRELATION, content: json('OnboardingDecision') },
+      ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED', 'ONBOARDING_ALREADY_DECIDED', 'ONBOARDING_DUPLICATE'),
+    },
+  },
+});
+
 const text = { type: 'string' };
 const fields = (properties: Record<string, unknown>) => ({
   type: 'object',
@@ -99,6 +112,7 @@ const WORKSPACE_FIELDS = {
 };
 const DEFECT_ID = { type: 'string', pattern: '^d-[0-9a-f]{16}$' };
 const BUSINESS_DATE = { type: 'string', pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' };
+const ONBOARDING_STATUS = { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] };
 const CUSTOMER_FIELDS = {
   customerId: { type: 'string', format: 'uuid' },
   status: { type: 'string', enum: ['ACTIVE', 'DISABLED'] },
@@ -238,12 +252,12 @@ export const OPENAPI_DOCUMENT = {
     '/api/v1/onboarding/requests': {
       post: {
         operationId: 'submitOnboardingRequest',
-        summary: 'Submete a solicitação de abertura, aprovada automaticamente: cria o cliente e a conta. Sem sessão: CSRF do contexto pré-autenticado',
+        summary: 'Submete a solicitação de abertura. Política AUTOMATIC: aprovada com cliente e conta; MANUAL: PENDING com credencial de consulta. Sem sessão: CSRF do contexto pré-autenticado',
         security: PREAUTH_SECURITY,
         parameters: CSRF_PARAMETER,
         requestBody: { required: true, content: json('OnboardingRequest') },
         responses: {
-          201: { description: 'Solicitação aprovada; o cliente entra pelo login de sempre', headers: CORRELATION, content: json('OnboardingSubmitted') },
+          201: { description: 'APPROVED: o cliente entra pelo login de sempre. PENDING: credencial de consulta mostrada só nesta resposta', headers: CORRELATION, content: json('OnboardingSubmitted') },
           ...problems(
             ...POST, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED', 'ONBOARDING_DUPLICATE', 'ENROLLMENT_CODE_REQUIRED',
             'ENROLLMENT_CODE_INVALID', 'ONBOARDING_UNDERAGE', 'RATE_LIMIT_EXCEEDED',
@@ -251,6 +265,61 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/onboarding/requests/status': {
+      post: {
+        operationId: 'getOnboardingRequestStatus',
+        summary: 'Estado da solicitação com a credencial individual (24 h). Não abre sessão',
+        security: PREAUTH_SECURITY,
+        parameters: CSRF_PARAMETER,
+        requestBody: { required: true, content: json('OnboardingStatusQuery') },
+        responses: {
+          200: { description: 'Só o estado', headers: CORRELATION, content: json('OnboardingStatus') },
+          ...problems(...POST, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'RATE_LIMIT_EXCEEDED'),
+        },
+      },
+    },
+    '/api/v1/facilitator/workspaces/{workspaceId}/onboarding-policy': {
+      get: {
+        operationId: 'getOnboardingPolicy',
+        summary: 'Política de aprovação vigente; revisão 0 = AUTOMATIC',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }],
+        responses: {
+          200: { description: 'Política vigente', headers: CORRELATION, content: json('OnboardingPolicy') },
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+      patch: {
+        operationId: 'changeOnboardingPolicy',
+        summary: 'Grava a revisão seguinte; baseRevision deve ser a vigente; o mesmo modo não grava nada',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }, ...CSRF_PARAMETER],
+        requestBody: { required: true, content: json('OnboardingPolicyChange') },
+        responses: {
+          200: { description: 'Política vigente após a alteração', headers: CORRELATION, content: json('OnboardingPolicy') },
+          ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'ONBOARDING_POLICY_CONFLICT', 'WORKSPACE_ARCHIVED'),
+        },
+      },
+    },
+    '/api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests': {
+      get: {
+        operationId: 'listOnboardingRequests',
+        summary: 'Solicitações do workspace, por ordem de criação; sem CPF, telefone nem credencial',
+        security: SESSION_SECURITY,
+        parameters: [
+          { $ref: '#/components/parameters/WorkspaceId' },
+          { $ref: '#/components/parameters/OnboardingStatusFilter' },
+          { $ref: '#/components/parameters/Limit' },
+          { $ref: '#/components/parameters/Offset' },
+        ],
+        responses: {
+          200: { description: 'Página', headers: CORRELATION, content: json('OnboardingRequestPage') },
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+    },
+    '/api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests/{requestId}/approve': decision('approveOnboardingRequest', 'Aprova uma PENDING: cria cliente, senha, conta e vínculo'),
+    '/api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests/{requestId}/reject': decision('rejectOnboardingRequest', 'Rejeita uma PENDING; CPF e e-mail ficam livres'),
     '/api/v1/facilitator/workspaces/{workspaceId}/clock': {
       get: {
         operationId: 'getSimulationClock',
@@ -352,6 +421,19 @@ export const OPENAPI_DOCUMENT = {
         description: 'Sem vínculo, inexistente ou malformado: o mesmo 404',
         schema: { type: 'string', format: 'uuid' },
       },
+      RequestId: {
+        name: 'requestId',
+        in: 'path',
+        required: true,
+        description: 'De outro workspace, inexistente ou malformado: o mesmo 404',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      OnboardingStatusFilter: {
+        name: 'status',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] },
+      },
       CustomerId: {
         name: 'customerId',
         in: 'path',
@@ -436,7 +518,45 @@ export const OPENAPI_DOCUMENT = {
           password: { type: 'string', description: '12 a 128 caracteres; guarda-se só o hash' },
         },
       },
-      OnboardingSubmitted: fields({ requestId: { type: 'string', format: 'uuid' }, status: { type: 'string', enum: ['APPROVED'] } }),
+      OnboardingSubmitted: {
+        oneOf: [
+          fields({ requestId: { type: 'string', format: 'uuid' }, status: { type: 'string', enum: ['APPROVED'] } }),
+          fields({
+            requestId: { type: 'string', format: 'uuid' },
+            status: { type: 'string', enum: ['PENDING'] },
+            statusCredential: { type: 'string', pattern: '^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$', description: 'Mostrada só aqui' },
+            statusCredentialExpiresAt: { type: 'string', format: 'date-time' },
+          }),
+        ],
+      },
+      OnboardingStatusQuery: fields({ requestId: text, credential: text }),
+      OnboardingStatus: fields({ requestId: { type: 'string', format: 'uuid' }, status: ONBOARDING_STATUS }),
+      OnboardingPolicy: fields({
+        workspaceId: { type: 'string', format: 'uuid' },
+        mode: { type: 'string', enum: ['AUTOMATIC', 'MANUAL'] },
+        revision: { type: 'integer', minimum: 0 },
+      }),
+      OnboardingPolicyChange: fields({ baseRevision: { type: 'integer', minimum: 0 }, mode: { type: 'string', enum: ['AUTOMATIC', 'MANUAL'] } }),
+      OnboardingRequestPage: fields({
+        items: {
+          type: 'array',
+          items: fields({
+            requestId: { type: 'string', format: 'uuid' },
+            status: ONBOARDING_STATUS,
+            name: text,
+            email: text,
+            businessDate: BUSINESS_DATE,
+            createdAt: { type: 'string', format: 'date-time' },
+            decidedAt: { type: ['string', 'null'], format: 'date-time' },
+          }),
+        },
+        nextOffset: { type: ['integer', 'null'], description: 'Início da próxima página; null na última' },
+      }),
+      OnboardingDecision: fields({
+        workspaceId: { type: 'string', format: 'uuid' },
+        requestId: { type: 'string', format: 'uuid' },
+        status: { type: 'string', enum: ['APPROVED', 'REJECTED'] },
+      }),
       SimulationClock: fields({
         workspaceId: { type: 'string', format: 'uuid' },
         date: BUSINESS_DATE,

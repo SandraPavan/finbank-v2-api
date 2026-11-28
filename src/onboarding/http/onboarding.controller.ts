@@ -5,7 +5,14 @@ import { AuthenticationProblemFilter } from '../../authentication/http/authentic
 import { AuthenticationAccess } from '../../http/access-policy.js';
 import type { HttpRequest, HttpResponse } from '../../http/http-types.js';
 import { correlationIdOf, type ProblemCode, ProblemError, sendProblem } from '../../http/problem.js';
-import { OnboardingError, type OnboardingErrorCode, OnboardingService, type SubmittedOnboarding } from '../application/onboarding.service.js';
+import { parseTextFields } from '../../http/body.js';
+import {
+  OnboardingError,
+  type OnboardingErrorCode,
+  OnboardingService,
+  type OnboardingStatusView,
+  type SubmittedOnboarding,
+} from '../application/onboarding.service.js';
 import { OnboardingValidationError, parseOnboardingRequest } from '../domain/onboarding-request.js';
 
 const CODES: Record<OnboardingErrorCode, ProblemCode> = {
@@ -15,6 +22,7 @@ const CODES: Record<OnboardingErrorCode, ProblemCode> = {
   ENROLLMENT_CODE_INVALID: 'ENROLLMENT_CODE_INVALID',
   UNDERAGE: 'ONBOARDING_UNDERAGE',
   DUPLICATE: 'ONBOARDING_DUPLICATE',
+  STATUS_NOT_FOUND: 'RESOURCE_NOT_FOUND',
 };
 
 /** Só códigos e nomes de campos: nunca CPF, e-mail, telefone, nome, senha ou código de inscrição. */
@@ -43,12 +51,25 @@ export class OnboardingController {
   @Post()
   @HttpCode(201)
   async submit(@Req() request: HttpRequest, @Body() body: unknown): Promise<SubmittedOnboarding> {
+    await this.preauthenticated(request);
+    return this.onboarding.submit(parseOnboardingRequest(body), correlationIdOf(request));
+  }
+
+  /** Só o estado, com a credencial individual; não abre sessão. Recusas são sempre o mesmo 404. */
+  @Post('status')
+  @HttpCode(200)
+  async status(@Req() request: HttpRequest, @Body() body: unknown): Promise<OnboardingStatusView> {
+    await this.preauthenticated(request);
+    const { requestId, credential } = parseTextFields(body, ['requestId', 'credential']);
+    return this.onboarding.status(requestId, credential);
+  }
+
+  private async preauthenticated(request: HttpRequest): Promise<void> {
     const cookies = this.context.read(request);
     const current = await this.context.current(cookies);
     if (current !== null && current.session.scope !== 'NORMAL') {
       throw new ProblemError('PASSWORD_CHANGE_REQUIRED');
     }
     this.context.requireCsrf(request, current?.secret ?? cookies.preauth);
-    return this.onboarding.submit(parseOnboardingRequest(body), correlationIdOf(request));
   }
 }

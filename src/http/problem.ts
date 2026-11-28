@@ -16,6 +16,8 @@ export const PROBLEMS = {
   IDENTITY_STATE_CONFLICT: [409, 'O estado da identidade não permite a operação'],
   WORKSPACE_ARCHIVED: [409, 'Workspace arquivado não aceita a operação'],
   ONBOARDING_DUPLICATE: [409, 'CPF ou e-mail já cadastrado neste workspace'],
+  ONBOARDING_ALREADY_DECIDED: [409, 'A solicitação já foi decidida de outro modo'],
+  ONBOARDING_POLICY_CONFLICT: [409, 'A política mudou depois da revisão informada'],
   PAYLOAD_TOO_LARGE: [413, 'Corpo da requisição grande demais'],
   UNSUPPORTED_MEDIA_TYPE: [415, 'Tipo de conteúdo não suportado'],
   AUTH_CURRENT_PASSWORD_INVALID: [422, 'Senha atual incorreta'],

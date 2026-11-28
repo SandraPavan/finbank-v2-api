@@ -25,7 +25,8 @@ function setup(options: {
   const deps = {
     store: {
       findWorkspace: vi.fn().mockResolvedValue(options.workspace === undefined ? { id: WS, status: 'ACTIVE' } : options.workspace),
-      insert: vi.fn().mockResolvedValue(options.insert ?? { kind: 'CREATED', requestId: 'req-1' }),
+      insert: vi.fn().mockResolvedValue(options.insert ?? { kind: 'APPROVED', requestId: 'req-1' }),
+      findStatus: vi.fn().mockResolvedValue(null),
     },
     enrollment: { check: vi.fn().mockResolvedValue(options.check ?? 'ACCEPTED') },
     clock: { today: vi.fn().mockResolvedValue({ date: options.today ?? '2026-11-27', revision: 3 }) },
@@ -48,10 +49,12 @@ describe('serviço de onboarding', () => {
     expect(deps.hasher.hash).toHaveBeenCalledWith(DRAFT.password);
     const [stored, correlation] = deps.store.insert.mock.calls[0] as [Record<string, unknown>, string];
     expect(correlation).toBe('corr-0001');
-    expect(stored).toEqual({
+    const { statusCredentialHash, ...rest } = stored;
+    expect(rest).toEqual({
       workspaceId: WS, name: DRAFT.name, cpf: DRAFT.cpf, birthDate: DRAFT.birthDate, email: DRAFT.email, phone: DRAFT.phone,
       passwordHash: 'hash-argon2', businessDate: '2026-11-27', clockRevision: 3,
     });
+    expect(statusCredentialHash).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(stored)).not.toContain(DRAFT.password);
   });
 
