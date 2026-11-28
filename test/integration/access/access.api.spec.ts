@@ -117,7 +117,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(33);
+      expect(routes).toHaveLength(34);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
@@ -324,6 +324,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       'get /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/block': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/unblock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/educational-credits': { a: [403, 403], b: [403, 403], fa: [201, 404], fab: [201, 201] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/onboarding-policy': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'patch /api/v1/facilitator/workspaces/{workspaceId}/onboarding-policy': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
@@ -388,10 +389,18 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
             : path.includes('onboarding-policy')
               ? { mode: 'MANUAL' }
               : { configuration: { mode: 'STUDENT', preset: { kind: 'NONE' } } };
-          const body = method === 'patch' ? { baseRevision: base, ...change } : /account\/(block|unblock)$/.test(path) ? { justification: 'Exercício de bloqueio da turma' } : undefined;
-          const reply = await browser.api(method.toUpperCase() as Method, url, body);
+          const credit = path.endsWith('educational-credits');
+          const body = method === 'patch'
+            ? { baseRevision: base, ...change }
+            : /account\/(block|unblock)$/.test(path)
+              ? { justification: 'Exercício de bloqueio da turma' }
+              : credit
+                ? { amount: '1.00', justification: 'Saldo inicial da matriz cruzada' }
+                : undefined;
+          // Cada ator usa a própria chave: todo crédito permitido é novo (201).
+          const reply = await browser.api(method.toUpperCase() as Method, url, body, credit ? { 'idempotency-key': `matriz-${actor}-${i}` } : {});
           expect(reply.status, `${actor} em ${i === 0 ? 'A' : 'B'}`).toBe(expected[actor][i]);
-          const own = reply.status === 200;
+          const own = reply.status === 200 || reply.status === 201;
           const marks = path.includes('customers')
             ? [target.id]
             : path.includes('onboarding-requests')

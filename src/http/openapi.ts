@@ -416,6 +416,25 @@ export const OPENAPI_DOCUMENT = {
     },
     '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/block': accountStatus('blockCustomerAccount', 'Bloqueia a conta: não envia nem recebe movimentações'),
     '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/unblock': accountStatus('unblockCustomerAccount', 'Desbloqueia a conta'),
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/educational-credits': {
+      post: {
+        operationId: 'creditCustomerAccount',
+        summary: 'Crédito educacional na conta do cliente, pelo PaymentExecution; a mesma chave e conteúdo devolvem o original',
+        security: SESSION_SECURITY,
+        parameters: [
+          { $ref: '#/components/parameters/WorkspaceId' },
+          { $ref: '#/components/parameters/CustomerId' },
+          { $ref: '#/components/parameters/IdempotencyKey' },
+          ...CSRF_PARAMETER,
+        ],
+        requestBody: { required: true, content: json('EducationalCreditRequest') },
+        responses: {
+          201: { description: 'Crédito executado', headers: CORRELATION, content: json('EducationalCredit') },
+          200: { description: 'Repetição da mesma chave e do mesmo conteúdo: o crédito original', headers: CORRELATION, content: json('EducationalCredit') },
+          ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED', 'ACCOUNT_BLOCKED', 'IDEMPOTENCY_CONFLICT', 'CREDIT_LIMIT_EXCEEDED'),
+        },
+      },
+    },
     '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/disable': customerState(
       'disableCustomer',
       'Desativa o cliente e encerra as sessões dele',
@@ -455,6 +474,13 @@ export const OPENAPI_DOCUMENT = {
         required: true,
         description: 'Sem vínculo, inexistente ou malformado: o mesmo 404',
         schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKey: {
+        name: 'Idempotency-Key',
+        in: 'header',
+        required: true,
+        description: 'Identifica a intenção; com o ator e o tipo, forma a chave da operação',
+        schema: { type: 'string', pattern: '^[A-Za-z0-9_-]{8,128}$' },
       },
       RequestId: {
         name: 'requestId',
@@ -591,6 +617,19 @@ export const OPENAPI_DOCUMENT = {
         workspaceId: { type: 'string', format: 'uuid' },
         requestId: { type: 'string', format: 'uuid' },
         status: { type: 'string', enum: ['APPROVED', 'REJECTED'] },
+      }),
+      EducationalCreditRequest: fields({
+        amount: { type: 'string', pattern: '^[0-9]{1,9}\\.[0-9]{2}$', description: 'Reais com duas casas, maior que zero; limites por crédito e por conta' },
+        justification: { type: 'string', description: '10 a 200 caracteres; fica só no registro do crédito' },
+      }),
+      EducationalCredit: fields({
+        creditId: { type: 'string', format: 'uuid' },
+        operationId: { type: 'string', format: 'uuid' },
+        workspaceId: { type: 'string', format: 'uuid' },
+        customerId: { type: 'string', format: 'uuid' },
+        accountId: { type: 'string', format: 'uuid' },
+        amount: { type: 'string', pattern: '^[0-9]+\\.[0-9]{2}$' },
+        replayed: { type: 'boolean' },
       }),
       AccountStatusChange: fields({ justification: { type: 'string', description: '10 a 200 caracteres; fica só no histórico da conta' } }),
       AccountState: fields(ACCOUNT_STATE_FIELDS),

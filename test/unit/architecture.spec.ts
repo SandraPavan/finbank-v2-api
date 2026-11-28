@@ -405,11 +405,15 @@ describe('arquitetura do onboarding', () => {
 });
 
 describe('abertura de conta do cliente', () => {
-  it('fora do próprio módulo, só a abertura de conta (onboarding) e a mudança de estado (conta) do PaymentExecution são usadas', () => {
+  it('fora do próprio módulo, só abertura de conta, mudança de estado, contrapartida e crédito do PaymentExecution são usados', () => {
     const users = files.filter((f) => !f.path.startsWith('payment-execution/') && imports(f.text).some((s) => /payment-execution\/adapters/.test(s)));
-    expect(users.map((f) => f.path).sort()).toEqual(['bank-account/adapters/prisma-bank-account.store.ts', 'onboarding/adapters/prisma-onboarding.store.ts']);
+    expect(users.map((f) => f.path).sort()).toEqual([
+      'bank-account/adapters/prisma-bank-account.store.ts',
+      'bank-account/adapters/prisma-educational-credit.store.ts',
+      'onboarding/adapters/prisma-onboarding.store.ts',
+    ]);
     const uses = users.flatMap((f) => [...f.text.matchAll(/import \{([^}]+)\} from '[^']*payment-execution\/adapters[^']*'/g)].map((m) => m[1]?.trim()));
-    expect(uses.sort()).toEqual(['changeAccountStatus', 'openCustomerAccount']);
+    expect(uses.flatMap((u) => (u ?? '').split(',').map((x) => x.trim())).sort()).toEqual(['changeAccountStatus', 'creditWithin', 'ensureContraAccount', 'openCustomerAccount']);
   });
 });
 
@@ -421,7 +425,7 @@ describe('arquitetura da conta do cliente', () => {
     expect(inner.length).toBeGreaterThan(0);
     for (const file of inner) {
       for (const spec of imports(file.text)) {
-        expect(spec, file.path).toMatch(/^\.\.\/domain\/|^\.\.\/\.\.\/identity\/domain\/workspace-access\.js$/);
+        expect(spec, file.path).toMatch(/^\.\.\/domain\/|^\.\/[a-z-]+\.js$|^\.\.\/\.\.\/identity\/domain\/workspace-access\.js$/);
       }
     }
   });

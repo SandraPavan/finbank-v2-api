@@ -17,6 +17,7 @@ export const PAYMENT_EXECUTION_ERROR_CODES = [
   'OPERATION_NOT_FOUND',
   'NOT_REVERSIBLE',
   'ALREADY_REVERSED',
+  'CREDIT_LIMIT_EXCEEDED',
   'EXECUTION_FAILED',
 ] as const;
 
@@ -38,6 +39,7 @@ const MESSAGES: Record<PaymentExecutionErrorCode, string> = {
   OPERATION_NOT_FOUND: 'Operação não encontrada no workspace',
   NOT_REVERSIBLE: 'Operação não pode ser estornada',
   ALREADY_REVERSED: 'Operação já estornada',
+  CREDIT_LIMIT_EXCEEDED: 'O crédito excederia o teto acumulado da conta',
   EXECUTION_FAILED: 'Falha ao executar a operação',
 };
 

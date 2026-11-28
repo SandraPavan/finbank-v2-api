@@ -1,8 +1,8 @@
-import { type ArgumentsHost, Body, Catch, Controller, type ExceptionFilter, Get, HttpCode, Param, Post, Req, UseFilters } from '@nestjs/common';
+import { type ArgumentsHost, Body, Catch, Controller, type ExceptionFilter, Get, HttpCode, Param, Post, Req, Res, UseFilters } from '@nestjs/common';
 import { IdentityProblemFilter } from '../../access/http/access-problems.js';
 import { CurrentWorkspace } from '../../access/http/operation-context.js';
 import { FacilitatorWorkspaceAccess, WORKSPACE_PARAM } from '../../http/access-policy.js';
-import type { HttpRequest, HttpResponse } from '../../http/http-types.js';
+import { type HttpRequest, type HttpResponse, header } from '../../http/http-types.js';
 import { correlationIdOf, type ProblemCode, ProblemError, sendProblem } from '../../http/problem.js';
 import type { WorkspaceAccess } from '../../identity/domain/workspace-access.js';
 import {
@@ -13,6 +13,8 @@ import {
   type CustomerAccountView,
 } from '../application/bank-account.service.js';
 import { InvalidJustificationError, parseJustification } from '../domain/account-status.js';
+import { type CreditView, EducationalCreditError, type EducationalCreditErrorCode, EducationalCreditService } from '../application/educational-credit.service.js';
+import { InvalidCreditRequestError } from '../domain/educational-credit.js';
 
 const CODES: Record<BankAccountErrorCode, ProblemCode> = {
   NOT_FOUND: 'RESOURCE_NOT_FOUND',
@@ -20,12 +22,33 @@ const CODES: Record<BankAccountErrorCode, ProblemCode> = {
   WORKSPACE_ARCHIVED: 'WORKSPACE_ARCHIVED',
 };
 
-/** Erros da conta sem detalhe: nunca a justificativa recebida. */
-@Catch(BankAccountError, InvalidJustificationError)
+const CREDIT_CODES: Record<EducationalCreditErrorCode, ProblemCode> = {
+  NOT_FOUND: 'RESOURCE_NOT_FOUND',
+  ACCESS_LOST: 'RESOURCE_NOT_FOUND',
+  WORKSPACE_ARCHIVED: 'WORKSPACE_ARCHIVED',
+  ACCOUNT_BLOCKED: 'ACCOUNT_BLOCKED',
+  LIMIT_EXCEEDED: 'CREDIT_LIMIT_EXCEEDED',
+  IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
+};
+
+function problemOf(error: BankAccountError | InvalidJustificationError | InvalidCreditRequestError | EducationalCreditError): ProblemError {
+  if (error instanceof InvalidJustificationError) {
+    return new ProblemError('VALIDATION_ERROR', { fields: ['justification'] });
+  }
+  if (error instanceof InvalidCreditRequestError) {
+    return new ProblemError('VALIDATION_ERROR', error.fields.length > 0 ? { fields: error.fields } : {});
+  }
+  if (error instanceof EducationalCreditError) {
+    return new ProblemError(CREDIT_CODES[error.code], error.code === 'LIMIT_EXCEEDED' ? { fields: ['amount'] } : {});
+  }
+  return new ProblemError(CODES[error.code]);
+}
+
+/** Erros da conta e do crédito sem detalhe: nunca a justificativa, o valor ou a chave recebidos. */
+@Catch(BankAccountError, InvalidJustificationError, InvalidCreditRequestError, EducationalCreditError)
 export class BankAccountProblemFilter implements ExceptionFilter {
-  catch(error: BankAccountError | InvalidJustificationError, host: ArgumentsHost): void {
-    const problem =
-      error instanceof InvalidJustificationError ? new ProblemError('VALIDATION_ERROR', { fields: ['justification'] }) : new ProblemError(CODES[error.code]);
+  catch(error: BankAccountError | InvalidJustificationError | InvalidCreditRequestError | EducationalCreditError, host: ArgumentsHost): void {
+    const problem = problemOf(error);
     const http = host.switchToHttp();
     sendProblem(http.getRequest<HttpRequest>(), http.getResponse<HttpResponse>(), problem);
   }
@@ -38,7 +61,10 @@ const CUSTOMER_PARAM = 'customerId';
 @FacilitatorWorkspaceAccess()
 @UseFilters(IdentityProblemFilter, BankAccountProblemFilter)
 export class BankAccountController {
-  constructor(private readonly accounts: BankAccountService) {}
+  constructor(
+    private readonly accounts: BankAccountService,
+    private readonly credits: EducationalCreditService,
+  ) {}
 
   @Get()
   view(@CurrentWorkspace() access: WorkspaceAccess, @Param(CUSTOMER_PARAM) customerId: string): Promise<CustomerAccountView> {
@@ -55,5 +81,19 @@ export class BankAccountController {
   @HttpCode(200)
   unblock(@CurrentWorkspace() access: WorkspaceAccess, @Param(CUSTOMER_PARAM) customerId: string, @Body() body: unknown, @Req() request: HttpRequest): Promise<AccountStateView> {
     return this.accounts.change(access, customerId, 'ACTIVE', parseJustification(body), correlationIdOf(request));
+  }
+
+  /** Crédito educacional: 201 quando novo, 200 quando é a repetição da mesma chave e do mesmo conteúdo. */
+  @Post('educational-credits')
+  async credit(
+    @CurrentWorkspace() access: WorkspaceAccess,
+    @Param(CUSTOMER_PARAM) customerId: string,
+    @Body() body: unknown,
+    @Req() request: HttpRequest,
+    @Res({ passthrough: true }) response: HttpResponse,
+  ): Promise<CreditView> {
+    const view = await this.credits.credit(access, customerId, header(request, 'idempotency-key'), body, correlationIdOf(request));
+    response.status(view.replayed ? 200 : 201);
+    return view;
   }
 }

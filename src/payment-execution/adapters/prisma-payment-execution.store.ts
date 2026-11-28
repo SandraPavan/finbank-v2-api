@@ -12,6 +12,7 @@ import type {
   StoredOperation,
   WorkspaceStatus,
 } from '../application/payment-execution.store.js';
+import { creditInTransaction, type ExecutionResult } from '../application/payment-execution.service.js';
 import { PaymentExecutionError } from '../domain/errors.js';
 import type { AccountKind, LedgerEntryDraft } from '../domain/transfer.js';
 
@@ -142,6 +143,14 @@ class PrismaPaymentExecutionTransaction implements PaymentExecutionTransaction {
     });
   }
 
+  async sumEducationalCredits(workspaceId: string, accountId: string, excludingOperationId: string): Promise<bigint> {
+    const [row] = await this.tx.$queryRaw<{ total: bigint }[]>`
+      SELECT coalesce(sum("amount_cents"), 0)::bigint AS "total" FROM "payment_operation"
+       WHERE "workspace_id" = ${workspaceId}::uuid AND "credit_account_id" = ${accountId}::uuid
+         AND "type" = 'EDUCATIONAL_CREDIT' AND "id" <> ${excludingOperationId}::uuid`;
+    return row?.total ?? 0n;
+  }
+
   async setBalance(workspaceId: string, accountId: string, balanceCents: bigint): Promise<void> {
     await this.tx.account.update({
       where: { workspaceId_id: { workspaceId, id: accountId } },
@@ -186,6 +195,28 @@ export async function changeAccountStatus(
       UPDATE "account" SET "status" = ${status}::"account_status" WHERE "workspace_id" = ${workspaceId}::uuid AND "id" = ${accountId}::uuid`;
   }
   return row.status;
+}
+
+/**
+ * Garante a contrapartida do workspace dentro da transação de quem chama; o índice único decide sob concorrência.
+ * Conta nova com saldo zero: não é movimentação.
+ */
+export async function ensureContraAccount(tx: Pick<Prisma.TransactionClient, '$executeRaw'>, workspaceId: string): Promise<void> {
+  await tx.$executeRaw`
+    INSERT INTO "account" ("workspace_id", "kind") VALUES (${workspaceId}::uuid, 'CONTRA')
+    ON CONFLICT ("workspace_id") WHERE "kind" = 'CONTRA' DO NOTHING`;
+}
+
+/**
+ * Crédito educacional na transação de quem chama, pela mesma lógica do PaymentExecution.
+ * Erros do banco viram erros tipados; qualquer erro desfaz a transação inteira de quem chama.
+ */
+export async function creditWithin(tx: Tx, raw: unknown): Promise<ExecutionResult> {
+  try {
+    return await creditInTransaction(new PrismaPaymentExecutionTransaction(tx), raw);
+  } catch (error) {
+    throw translate(error, 'ACCOUNT_NOT_FOUND');
+  }
 }
 
 /** Adaptador PostgreSQL/Prisma do PaymentExecution. */

@@ -16,14 +16,21 @@ export class InvalidJustificationError extends Error {
   }
 }
 
-/** Corpo com exatamente `justification`: texto sem espaços nas pontas, 10 a 200 pontos de código, sem controle. */
+/** Corpo com exatamente `justification`. */
 export function parseJustification(body: unknown): string {
   if (typeof body !== 'object' || body === null || Array.isArray(body) || Object.getPrototypeOf(body) !== Object.prototype) {
     throw new InvalidJustificationError();
   }
   const record = body as Record<string, unknown>;
-  const raw = record['justification'];
-  if (Object.keys(record).length !== 1 || typeof raw !== 'string' || raw.length > JUSTIFICATION_MAX_LENGTH * 4) {
+  if (Object.keys(record).length !== 1) {
+    throw new InvalidJustificationError();
+  }
+  return normalizeJustification(record['justification']);
+}
+
+/** Texto sem espaços nas pontas, 10 a 200 pontos de código, sem caracteres de controle. */
+export function normalizeJustification(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length > JUSTIFICATION_MAX_LENGTH * 4) {
     throw new InvalidJustificationError();
   }
   if (CONTROL.test(raw) || LONE_SURROGATE.test(raw)) {

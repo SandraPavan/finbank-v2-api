@@ -71,6 +71,13 @@ class FakeStore implements PaymentExecutionStore {
         this.accounts.set(id, { ...this.accounts.get(id)!, balanceCents });
         return Promise.resolve();
       },
+      sumEducationalCredits: (ws, accountId, excluding) => {
+        this.calls.push('sum');
+        const total = [...this.operations.values()]
+          .filter((op) => op.input.workspaceId === ws && op.type === 'EDUCATIONAL_CREDIT' && op.creditAccountId === accountId && op.operationId !== excluding)
+          .reduce((sum, op) => sum + op.amountCents, 0n);
+        return Promise.resolve(total);
+      },
     };
     return work(tx);
   }
@@ -359,5 +366,45 @@ describe('estados e crédito educacional (lógica de decisão)', () => {
     store.contra = A;
     const done = await service.credit(credit());
     await expect(service.reverse({ workspaceId: WS, operationKey: 'estorno-0001', originalOperationId: done.operationId })).rejects.toMatchObject({ code: 'NOT_REVERSIBLE' });
+  });
+});
+
+describe('teto acumulado do crédito educacional', () => {
+  const credit = (key: string, amountCents: bigint, ceilingCents?: bigint) => ({
+    workspaceId: WS, operationKey: key, accountId: B, amountCents, ...(ceilingCents === undefined ? {} : { ceilingCents }),
+  });
+
+  function funded() {
+    const { store, service } = setup(0n, 'CONTRA');
+    store.contra = A;
+    return { store, service };
+  }
+
+  it('aceita exatamente até o teto e recusa o que passaria dele, sem lançar', async () => {
+    const { store, service } = funded();
+    await service.credit(credit('credito-0001', 600n, 1_000n));
+    await service.credit(credit('credito-0002', 400n, 1_000n));
+    const entries = store.entries.length;
+    await expect(service.credit(credit('credito-0003', 1n, 1_000n))).rejects.toMatchObject({ code: 'CREDIT_LIMIT_EXCEEDED' });
+    expect(store.entries).toHaveLength(entries);
+    expect(store.accounts.get(B)?.balanceCents).toBe(1_000n);
+  });
+
+  it('confere o teto depois de travar as contas e soma sem a própria operação', async () => {
+    const { store, service } = funded();
+    await service.credit(credit('credito-0001', 100n, 1_000n));
+    expect(store.calls.indexOf('sum')).toBeGreaterThan(store.calls.indexOf('lock'));
+  });
+
+  it('a repetição é devolvida mesmo acima de um teto menor; o teto não entra na impressão digital', async () => {
+    const { service } = funded();
+    const first = await service.credit(credit('credito-0001', 900n, 1_000n));
+    expect(await service.credit(credit('credito-0001', 900n, 500n))).toEqual({ ...first, replayed: true });
+    expect(await service.credit(credit('credito-0001', 900n))).toEqual({ ...first, replayed: true });
+  });
+
+  it.each([0n, -1n, 10])('teto %s inválido é recusado', async (ceiling) => {
+    const { service } = funded();
+    await expect(service.credit({ ...credit('credito-0001', 1n), ceilingCents: ceiling })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
   });
 });

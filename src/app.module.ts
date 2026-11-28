@@ -27,7 +27,7 @@ export class AppModule {
         EducationModule.forRoot(config),
         EnrollmentModule,
         authentication,
-        BankAccountModule,
+        BankAccountModule.forRoot(config),
         HealthModule,
         HttpModule,
         IdentityModule,

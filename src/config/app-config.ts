@@ -23,6 +23,15 @@ export interface LoginLimitsConfig {
   readonly maxRestrictionSeconds: number;
 }
 
+/** Limites do crédito educacional em centavos (L6). */
+export interface EducationalCreditLimits {
+  readonly maxPerOperationCents: bigint;
+  readonly maxPerAccountCents: bigint;
+}
+
+export const DEFAULT_CREDIT_MAX_PER_OPERATION = '1000.00';
+export const DEFAULT_CREDIT_MAX_PER_ACCOUNT = '10000.00';
+
 export interface AppConfig {
   readonly port: number;
   readonly databaseUrl: string;
@@ -32,6 +41,7 @@ export interface AppConfig {
   readonly temporaryCredentialHours: number;
   /** Classificação da implantação. Ausente = SHARED, o mais restritivo. */
   readonly environment: 'ISOLATED' | 'SHARED';
+  readonly educationalCredit: EducationalCreditLimits;
 }
 
 export class InvalidConfigError extends Error {
@@ -53,7 +63,29 @@ export function loadAppConfig(env: Readonly<Record<string, string | undefined>>)
     cookieTransport: parseCookieTransport(env['COOKIE_TRANSPORT']),
     environment: parseEnvironmentKind(env['FINBANK_ENVIRONMENT']),
     temporaryCredentialHours: parseInteger('TEMPORARY_CREDENTIAL_HOURS', env['TEMPORARY_CREDENTIAL_HOURS'], 24, 168),
+    educationalCredit: parseCreditLimits(env),
   };
+}
+
+/** Valores em reais com duas casas, como nas rotas (ex.: 1000.00); o por conta não pode ser menor que o por crédito. */
+function parseCreditLimits(env: Readonly<Record<string, string | undefined>>): EducationalCreditLimits {
+  const money = (variable: string, fallback: string): bigint => {
+    const raw = env[variable] ?? fallback;
+    const match = /^([0-9]{1,9})\.([0-9]{2})$/.exec(raw);
+    const cents = match === null ? 0n : BigInt(match[1] ?? '0') * 100n + BigInt(match[2] ?? '0');
+    if (cents <= 0n) {
+      throw new InvalidConfigError(variable, 'deve ser um valor positivo em reais com duas casas, como 1000.00');
+    }
+    return cents;
+  };
+  const limits = {
+    maxPerOperationCents: money('EDUCATIONAL_CREDIT_MAX_PER_OPERATION', DEFAULT_CREDIT_MAX_PER_OPERATION),
+    maxPerAccountCents: money('EDUCATIONAL_CREDIT_MAX_PER_ACCOUNT', DEFAULT_CREDIT_MAX_PER_ACCOUNT),
+  };
+  if (limits.maxPerAccountCents < limits.maxPerOperationCents) {
+    throw new InvalidConfigError('EDUCATIONAL_CREDIT_MAX_PER_ACCOUNT', 'deve ser maior ou igual a EDUCATIONAL_CREDIT_MAX_PER_OPERATION');
+  }
+  return limits;
 }
 
 function parseSession(env: Readonly<Record<string, string | undefined>>): SessionConfig {

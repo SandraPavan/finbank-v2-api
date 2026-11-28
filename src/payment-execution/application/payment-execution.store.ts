@@ -72,6 +72,8 @@ export interface PaymentExecutionTransaction {
   lockAccounts(workspaceId: string, accountIds: readonly string[]): Promise<readonly LockedAccount[]>;
   insertEntries(workspaceId: string, operationId: string, entries: readonly LedgerEntryDraft[]): Promise<void>;
   setBalance(workspaceId: string, accountId: string, balanceCents: bigint): Promise<void>;
+  /** Soma dos créditos educacionais já executados para a conta, sem contar a operação indicada. */
+  sumEducationalCredits(workspaceId: string, accountId: string, excludingOperationId: string): Promise<bigint>;
 }
 
 export interface PaymentExecutionStore {

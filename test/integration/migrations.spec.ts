@@ -60,6 +60,7 @@ describe('migrações Prisma em banco descartável', () => {
         'model AuthenticationControl',
         'model CustomerAccount',
         'model EducationalConfigRevision',
+        'model EducationalCredit',
         'model LedgerEntry',
         'model OnboardingPolicyRevision',
         'model OnboardingRequest',
@@ -98,6 +99,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261204000000_onboarding_approval', finished: true },
       { migration_name: '20261205000000_onboarding_policy_decision', finished: true },
       { migration_name: '20261206000000_account_status_change', finished: true },
+      { migration_name: '20261207000000_educational_credit', finished: true },
     ]);
   });
 
@@ -106,7 +108,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(18);
+    expect(rows[0]?.total).toBe(19);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -133,6 +135,7 @@ describe('migrações Prisma em banco descartável', () => {
       'authentication_control',
       'customer_account',
       'educational_config_revision',
+      'educational_credit',
       'ledger_entry',
       'onboarding_policy_revision',
       'onboarding_request',
@@ -165,6 +168,7 @@ describe('migrações Prisma em banco descartável', () => {
       'educational_config_revision_number',
       'educational_config_revision_shape',
       'educational_config_revision_values',
+      'educational_credit_shape',
       'ledger_entry_amount_nonzero',
       'onboarding_policy_revision_number',
       'onboarding_request_cpf_format',
@@ -210,6 +214,9 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'customer_account_no_truncate', deferred: false },
       { tgname: 'educational_config_revision_immutable', deferred: false },
       { tgname: 'educational_config_revision_no_truncate', deferred: false },
+      { tgname: 'educational_credit_immutable', deferred: false },
+      { tgname: 'educational_credit_matches_operation', deferred: false },
+      { tgname: 'educational_credit_no_truncate', deferred: false },
       { tgname: 'ledger_entry_active_states', deferred: false },
       { tgname: 'ledger_entry_balanced', deferred: true },
       { tgname: 'ledger_entry_immutable', deferred: false },

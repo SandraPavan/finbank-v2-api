@@ -1,4 +1,4 @@
-import { creditFingerprint, parseCreditCommand } from '../domain/credit.js';
+import { type CreditCommand, creditFingerprint, parseCreditCommand } from '../domain/credit.js';
 import { PaymentExecutionError } from '../domain/errors.js';
 import { type OperationType, parseReversalCommand, reversalFingerprint, reversalMovement } from '../domain/reversal.js';
 import {
@@ -73,28 +73,7 @@ export class PaymentExecutionService {
    */
   async credit(raw: unknown): Promise<ExecutionResult> {
     const command = parseCreditCommand(raw);
-    const fingerprint = creditFingerprint(command);
-
-    return this.store.transaction(async (tx) => {
-      const contra = await tx.findContraAccount(command.workspaceId);
-      if (contra === null) {
-        throw new PaymentExecutionError('CONTRA_ACCOUNT_MISSING');
-      }
-      if (contra === command.accountId) {
-        throw new PaymentExecutionError('ACCOUNT_NOT_ELIGIBLE');
-      }
-      return run(tx, {
-        workspaceId: command.workspaceId,
-        operationKey: command.operationKey,
-        fingerprint,
-        type: 'EDUCATIONAL_CREDIT',
-        reversesOperationId: null,
-        modality: null,
-        debitAccountId: contra,
-        creditAccountId: command.accountId,
-        amountCents: command.amountCents,
-      });
-    });
+    return this.store.transaction((tx) => creditIn(tx, command));
   }
 
   /** Estorno total de uma transferência: nova operação vinculada, contas invertidas, mesmo valor. */
@@ -122,10 +101,43 @@ export class PaymentExecutionService {
 }
 
 /**
+ * Crédito educacional na transação recebida: a mesma lógica serve à transação própria e à de quem chama
+ * (por exemplo, o crédito por HTTP, que grava registro e auditoria na mesma transação).
+ */
+export async function creditInTransaction(tx: PaymentExecutionTransaction, raw: unknown): Promise<ExecutionResult> {
+  return creditIn(tx, parseCreditCommand(raw));
+}
+
+async function creditIn(tx: PaymentExecutionTransaction, command: CreditCommand): Promise<ExecutionResult> {
+  const contra = await tx.findContraAccount(command.workspaceId);
+  if (contra === null) {
+    throw new PaymentExecutionError('CONTRA_ACCOUNT_MISSING');
+  }
+  if (contra === command.accountId) {
+    throw new PaymentExecutionError('ACCOUNT_NOT_ELIGIBLE');
+  }
+  return run(
+    tx,
+    {
+      workspaceId: command.workspaceId,
+      operationKey: command.operationKey,
+      fingerprint: creditFingerprint(command),
+      type: 'EDUCATIONAL_CREDIT',
+      reversesOperationId: null,
+      modality: null,
+      debitAccountId: contra,
+      creditAccountId: command.accountId,
+      amountCents: command.amountCents,
+    },
+    command.ceilingCents,
+  );
+}
+
+/**
  * Registra a operação e, se for nova, aplica lançamentos e saldos na transação recebida.
  * A repetição é devolvida antes das conferências de estado: não movimenta nada.
  */
-async function run(tx: PaymentExecutionTransaction, input: RegisterOperationInput): Promise<ExecutionResult> {
+async function run(tx: PaymentExecutionTransaction, input: RegisterOperationInput, ceilingCents: bigint | null = null): Promise<ExecutionResult> {
   const workspaceStatus = await tx.lockWorkspace(input.workspaceId);
   const registration = await tx.registerOperation(input);
   if (registration.outcome === 'ALREADY_REVERSED') {
@@ -166,6 +178,13 @@ async function run(tx: PaymentExecutionTransaction, input: RegisterOperationInpu
   }
   if (input.type === 'EDUCATIONAL_CREDIT' && (debit.kind !== 'CONTRA' || credit.kind !== 'STANDARD')) {
     throw new PaymentExecutionError('ACCOUNT_NOT_ELIGIBLE');
+  }
+  // Teto acumulado sob a trava da conta: créditos simultâneos são somados um depois do outro.
+  if (ceilingCents !== null) {
+    const previous = await tx.sumEducationalCredits(input.workspaceId, credit.id, registration.operationId);
+    if (previous + input.amountCents > ceilingCents) {
+      throw new PaymentExecutionError('CREDIT_LIMIT_EXCEEDED');
+    }
   }
 
   const debitBalance = balanceAfterDebit(debit.kind, debit.balanceCents, input.amountCents);
