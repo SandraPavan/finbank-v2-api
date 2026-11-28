@@ -9,6 +9,7 @@
 // DEV-025: relógio simulado em revisões.
 // DEV-026: modalidade do workspace e código de inscrição em revisões.
 // DEV-027: solicitações de abertura (onboarding).
+// DEV-028: aprovação automática, cliente com conta e ator SYSTEM.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -62,6 +63,7 @@ enum MembershipStatus {
 enum AuditActorType {
   OPERATOR
   IDENTITY
+  SYSTEM
 
   @@map("audit_actor_type")
 }
@@ -140,16 +142,17 @@ model Workspace {
 
 /// Conta técnica com saldo materializado. Alterada somente pelo módulo payment-execution.
 model Account {
-  id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId  String             @map("workspace_id") @db.Uuid
-  kind         AccountKind
-  balanceCents BigInt             @default(0) @map("balance_cents")
-  status       AccountStatus      @default(ACTIVE)
-  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
-  workspace    Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  debits       PaymentOperation[] @relation("debit")
-  credits      PaymentOperation[] @relation("credit")
-  entries      LedgerEntry[]
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String             @map("workspace_id") @db.Uuid
+  kind          AccountKind
+  balanceCents  BigInt             @default(0) @map("balance_cents")
+  status        AccountStatus      @default(ACTIVE)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  debits        PaymentOperation[] @relation("debit")
+  credits       PaymentOperation[] @relation("credit")
+  entries       LedgerEntry[]
+  customerLinks CustomerAccount[]
 
   @@unique([workspaceId, id])
   @@map("account")
@@ -218,8 +221,11 @@ model UserIdentity {
   educationalRevisions EducationalConfigRevision[]
   clockRevisions       SimulationClockRevision[]
   enrollmentCodes      WorkspaceEnrollmentCode[]
+  onboarding           OnboardingRequest?
+  accountLinks         CustomerAccount[]
 
   @@unique([id, profile])
+  @@unique([id, workspaceId])
   @@map("user_identity")
 }
 
@@ -392,9 +398,24 @@ model OnboardingRequest {
   passwordHash  String           @map("password_hash") @db.VarChar(160)
   businessDate  DateTime         @map("business_date") @db.Date
   clockRevision Int              @map("clock_revision")
+  identityId    String?          @unique @map("identity_id") @db.Uuid
+  decidedAt     DateTime?        @map("decided_at") @db.Timestamptz(3)
+  identity      UserIdentity?    @relation(fields: [identityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdAt     DateTime         @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
   workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([workspaceId, createdAt])
   @@map("onboarding_request")
+}
+
+/// Conta do cliente: uma por cliente, sempre do mesmo workspace e comum (trigger). Só inserção.
+model CustomerAccount {
+  identityId  String       @id @map("identity_id") @db.Uuid
+  workspaceId String       @map("workspace_id") @db.Uuid
+  accountId   String       @unique @map("account_id") @db.Uuid
+  createdAt   DateTime     @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  identity    UserIdentity @relation(fields: [identityId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
+  account     Account      @relation(fields: [workspaceId, accountId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("customer_account")
 }

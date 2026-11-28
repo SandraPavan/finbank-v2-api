@@ -238,12 +238,12 @@ export const OPENAPI_DOCUMENT = {
     '/api/v1/onboarding/requests': {
       post: {
         operationId: 'submitOnboardingRequest',
-        summary: 'Submete a solicitação de abertura; gravada PENDING. Sem sessão: CSRF do contexto pré-autenticado',
+        summary: 'Submete a solicitação de abertura, aprovada automaticamente: cria o cliente e a conta. Sem sessão: CSRF do contexto pré-autenticado',
         security: PREAUTH_SECURITY,
         parameters: CSRF_PARAMETER,
         requestBody: { required: true, content: json('OnboardingRequest') },
         responses: {
-          201: { description: 'Solicitação gravada', headers: CORRELATION, content: json('OnboardingSubmitted') },
+          201: { description: 'Solicitação aprovada; o cliente entra pelo login de sempre', headers: CORRELATION, content: json('OnboardingSubmitted') },
           ...problems(
             ...POST, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED', 'ONBOARDING_DUPLICATE', 'ENROLLMENT_CODE_REQUIRED',
             'ENROLLMENT_CODE_INVALID', 'ONBOARDING_UNDERAGE', 'RATE_LIMIT_EXCEEDED',
@@ -436,7 +436,7 @@ export const OPENAPI_DOCUMENT = {
           password: { type: 'string', description: '12 a 128 caracteres; guarda-se só o hash' },
         },
       },
-      OnboardingSubmitted: fields({ requestId: { type: 'string', format: 'uuid' }, status: { type: 'string', enum: ['PENDING'] } }),
+      OnboardingSubmitted: fields({ requestId: { type: 'string', format: 'uuid' }, status: { type: 'string', enum: ['APPROVED'] } }),
       SimulationClock: fields({
         workspaceId: { type: 'string', format: 'uuid' },
         date: BUSINESS_DATE,

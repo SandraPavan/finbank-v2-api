@@ -1,10 +1,19 @@
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import { IdentityError } from '../../identity/domain/errors.js';
+import { insertAudit } from '../../audit/adapters/insert-audit.js';
+import { openCustomerAccount } from '../../payment-execution/adapters/prisma-payment-execution.store.js';
 import { databaseErrorCode } from '../../persistence/database-errors.js';
 import { lockWorkspaceUse } from '../../persistence/workspace-locks.js';
 import type { NewOnboardingRequest, OnboardingInsert, OnboardingStore, OnboardingWorkspace } from '../application/onboarding.service.js';
 
 const UNIQUE_VIOLATION = '23505';
+
+function required(id: string | undefined): string {
+  if (id === undefined) {
+    throw new IdentityError('ACCESS_CHECK_FAILED');
+  }
+  return id;
+}
 
 type Reader = Pick<PrismaClient, '$queryRaw'>;
 
@@ -39,7 +48,7 @@ export class PrismaOnboardingStore implements OnboardingStore {
     });
   }
 
-  insert(request: NewOnboardingRequest): Promise<OnboardingInsert> {
+  insert(request: NewOnboardingRequest, correlationId: string): Promise<OnboardingInsert> {
     return this.guard(async () => {
       try {
         return await this.client.$transaction(
@@ -55,13 +64,37 @@ export class PrismaOnboardingStore implements OnboardingStore {
             if (fields.length > 0) {
               return { kind: 'DUPLICATE', fields };
             }
+            // Aprovação simulada automática: cliente, senha, conta e vínculo, tudo ou nada.
+            const [identity] = await tx.$queryRaw<{ id: string }[]>`
+              INSERT INTO "user_identity" ("status", "profile", "email", "workspace_id")
+              VALUES ('ACTIVE', 'CUSTOMER', ${request.email}, ${request.workspaceId}::uuid)
+              RETURNING "id"::text AS "id"`;
+            const identityId = required(identity?.id);
+            await tx.$executeRaw`
+              INSERT INTO "password_credential" ("identity_id", "hash") VALUES (${identityId}::uuid, ${request.passwordHash})`;
+            const accountId = await openCustomerAccount(tx, request.workspaceId);
+            await tx.$executeRaw`
+              INSERT INTO "customer_account" ("identity_id", "workspace_id", "account_id")
+              VALUES (${identityId}::uuid, ${request.workspaceId}::uuid, ${accountId}::uuid)`;
             const [row] = await tx.$queryRaw<{ id: string }[]>`
               INSERT INTO "onboarding_request"
-                ("workspace_id", "status", "name", "cpf", "birth_date", "email", "phone", "password_hash", "business_date", "clock_revision")
-              VALUES (${request.workspaceId}::uuid, 'PENDING', ${request.name}, ${request.cpf}, ${request.birthDate}::date, ${request.email},
-                      ${request.phone}, ${request.passwordHash}, ${request.businessDate}::date, ${request.clockRevision}::int)
+                ("workspace_id", "status", "name", "cpf", "birth_date", "email", "phone", "password_hash", "business_date", "clock_revision",
+                 "identity_id", "decided_at")
+              VALUES (${request.workspaceId}::uuid, 'APPROVED', ${request.name}, ${request.cpf}, ${request.birthDate}::date, ${request.email},
+                      ${request.phone}, ${request.passwordHash}, ${request.businessDate}::date, ${request.clockRevision}::int,
+                      ${identityId}::uuid, clock_timestamp())
               RETURNING "id"::text AS "id"`;
-            return { kind: 'CREATED', requestId: row?.id ?? '' };
+            const requestId = required(row?.id);
+            await insertAudit(tx, {
+              actor: { type: 'SYSTEM' },
+              workspaceId: request.workspaceId,
+              operation: 'ONBOARDING_APPROVE',
+              resource: 'ONBOARDING_REQUEST',
+              resourceId: requestId,
+              changed: true,
+              correlationId,
+            });
+            return { kind: 'CREATED', requestId };
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 5_000, timeout: 10_000 },
         );

@@ -247,9 +247,11 @@ describe('arquitetura da administração', () => {
     }
   });
 
-  it('nada fora da linha de comando e da migração cria identidade, credencial, vínculo ou workspace', () => {
-    const writers = files.filter((f) => /INSERT INTO "(user_identity|password_credential|workspace_membership|workspace)"/.test(f.text));
-    expect(writers.map((f) => f.path)).toEqual(['administration/adapters/prisma-operator.store.ts']);
+  it('nada fora da linha de comando cria vínculo administrativo ou workspace; identidade e senha só ela e a aprovação do onboarding', () => {
+    const admin = files.filter((f) => /INSERT INTO "(workspace_membership|workspace)"/.test(f.text));
+    expect(admin.map((f) => f.path)).toEqual(['administration/adapters/prisma-operator.store.ts']);
+    const identities = files.filter((f) => /INSERT INTO "(user_identity|password_credential)"/.test(f.text));
+    expect(identities.map((f) => f.path).sort()).toEqual(['administration/adapters/prisma-operator.store.ts', 'onboarding/adapters/prisma-onboarding.store.ts']);
   });
 });
 
@@ -382,14 +384,25 @@ describe('arquitetura do onboarding', () => {
     }
   });
 
-  it('não escreve saldos, identidades, contas nem registra logs; só a raiz o compõe', () => {
+  it('não escreve saldos, contas, workspaces nem vínculos administrativos, nem registra logs; só a raiz o compõe', () => {
     for (const file of module) {
-      expect(imports(file.text).join(' '), file.path).not.toMatch(/payment-execution|reconciliation|education|administration/);
+      // A conta do cliente é aberta pelo adaptador do PaymentExecution, na transação da aprovação.
+      const deps = imports(file.text).filter((s) => !(file.path === 'onboarding/adapters/prisma-onboarding.store.ts' && s === '../../payment-execution/adapters/prisma-payment-execution.store.js'));
+      expect(deps.join(' '), file.path).not.toMatch(/payment-execution|reconciliation|education|administration/);
       expect(file.text, file.path).not.toMatch(FINANCIAL_WRITE);
-      expect(file.text, file.path).not.toMatch(/INSERT INTO "(user_identity|password_credential|workspace|account)"/);
+      expect(file.text, file.path).not.toMatch(/INSERT INTO "(workspace|workspace_membership|account)"/);
       expect(file.text, file.path).not.toMatch(/console\.|Logger/);
     }
     const users = files.filter((f) => !f.path.startsWith('onboarding/') && imports(f.text).some((s) => /\/onboarding\//.test(s)));
     expect(users.map((f) => f.path)).toEqual(['app.module.ts']);
+  });
+});
+
+describe('abertura de conta do cliente', () => {
+  it('só o adaptador do onboarding usa a abertura de conta do PaymentExecution, e só ela fora do próprio módulo', () => {
+    const users = files.filter((f) => !f.path.startsWith('payment-execution/') && imports(f.text).some((s) => /payment-execution\/adapters/.test(s)));
+    expect(users.map((f) => f.path)).toEqual(['onboarding/adapters/prisma-onboarding.store.ts']);
+    const uses = users.flatMap((f) => [...f.text.matchAll(/import \{([^}]+)\} from '[^']*payment-execution\/adapters[^']*'/g)].map((m) => m[1]?.trim()));
+    expect(uses).toEqual(['openCustomerAccount']);
   });
 });

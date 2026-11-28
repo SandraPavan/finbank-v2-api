@@ -42,11 +42,12 @@ async function code(promise: Promise<unknown>): Promise<string> {
 }
 
 describe('serviço de onboarding', () => {
-  it('grava PENDING com hash, data simulada e revisão; a senha só vai ao hash', async () => {
+  it('aprova com hash, data simulada e revisão; a senha só vai ao hash; a correlação chega à gravação', async () => {
     const { deps, service } = setup();
-    expect(await service.submit(DRAFT)).toEqual({ requestId: 'req-1', status: 'PENDING' });
+    expect(await service.submit(DRAFT, 'corr-0001')).toEqual({ requestId: 'req-1', status: 'APPROVED' });
     expect(deps.hasher.hash).toHaveBeenCalledWith(DRAFT.password);
-    const [stored] = deps.store.insert.mock.calls[0] as [Record<string, unknown>];
+    const [stored, correlation] = deps.store.insert.mock.calls[0] as [Record<string, unknown>, string];
+    expect(correlation).toBe('corr-0001');
     expect(stored).toEqual({
       workspaceId: WS, name: DRAFT.name, cpf: DRAFT.cpf, birthDate: DRAFT.birthDate, email: DRAFT.email, phone: DRAFT.phone,
       passwordHash: 'hash-argon2', businessDate: '2026-11-27', clockRevision: 3,
@@ -55,16 +56,16 @@ describe('serviço de onboarding', () => {
   });
 
   it('idade pela data simulada: 18 no dia é aceito, um dia antes é recusado sem hash nem gravação', async () => {
-    expect(await setup({ today: '2026-11-27' }).service.submit(DRAFT)).toMatchObject({ status: 'PENDING' });
+    expect(await setup({ today: '2026-11-27' }).service.submit(DRAFT, 'corr-0001')).toMatchObject({ status: 'APPROVED' });
     const young = setup({ today: '2026-11-26' });
-    expect(await code(young.service.submit(DRAFT))).toBe('UNDERAGE');
+    expect(await code(young.service.submit(DRAFT, 'corr-0001'))).toBe('UNDERAGE');
     expect(young.deps.hasher.hash).not.toHaveBeenCalled();
     expect(young.deps.store.insert).not.toHaveBeenCalled();
   });
 
   it('nascimento posterior à data simulada é campo inválido', async () => {
     const { service } = setup({ today: '2026-11-27' });
-    await expect(service.submit({ ...DRAFT, birthDate: '2026-11-28' })).rejects.toBeInstanceOf(OnboardingValidationError);
+    await expect(service.submit({ ...DRAFT, birthDate: '2026-11-28' }, 'corr-0001')).rejects.toBeInstanceOf(OnboardingValidationError);
   });
 
   it.each<[string, Parameters<typeof setup>[0], string]>([
@@ -75,7 +76,7 @@ describe('serviço de onboarding', () => {
     ['duplicado', { insert: { kind: 'DUPLICATE', fields: ['cpf'] } }, 'DUPLICATE'],
     ['arquivado na gravação', { insert: { kind: 'ARCHIVED' } }, 'WORKSPACE_ARCHIVED'],
   ])('%s', async (_label, options, expected) => {
-    expect(await code(setup(options).service.submit(DRAFT))).toBe(expected);
+    expect(await code(setup(options).service.submit(DRAFT, 'corr-0001'))).toBe(expected);
   });
 
   it('só o código inválido chega ao limitador como falha; o pedido sem código não conta nem zera', async () => {
@@ -89,7 +90,7 @@ describe('serviço de onboarding', () => {
         throw e;
       }
     });
-    await invalid.service.submit(DRAFT).catch(() => undefined);
+    await invalid.service.submit(DRAFT, 'corr-0001').catch(() => undefined);
     expect(seen[0]).toBeInstanceOf(Invalid);
     expect(invalid.deps.attempts.run).toHaveBeenCalledWith(JSON.stringify(['enrollment', 'turma-a', 'ana@example.test']), expect.any(Function));
     const required = setup({ check: 'REQUIRED' });
@@ -104,12 +105,12 @@ describe('serviço de onboarding', () => {
         throw e;
       }
     });
-    await required.service.submit(DRAFT).catch(() => undefined);
+    await required.service.submit(DRAFT, 'corr-0001').catch(() => undefined);
     expect(outcomes).toEqual(['neutral']);
   });
 
   it('duplicado leva os campos', async () => {
-    const error = await setup({ insert: { kind: 'DUPLICATE', fields: ['cpf', 'email'] } }).service.submit(DRAFT).catch((e: unknown) => e);
+    const error = await setup({ insert: { kind: 'DUPLICATE', fields: ['cpf', 'email'] } }).service.submit(DRAFT, 'corr-0001').catch((e: unknown) => e);
     expect(error).toMatchObject({ code: 'DUPLICATE', fields: ['cpf', 'email'] });
   });
 });

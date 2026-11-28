@@ -150,6 +150,19 @@ class PrismaPaymentExecutionTransaction implements PaymentExecutionTransaction {
   }
 }
 
+/**
+ * Abre a conta comum de um cliente, com saldo zero, dentro da transação de quem chama (aprovação do onboarding).
+ * Única outra inserção de conta além de `createAccount`; não movimenta nada nem escreve saldo.
+ */
+export async function openCustomerAccount(tx: Pick<Prisma.TransactionClient, '$queryRaw'>, workspaceId: string): Promise<string> {
+  const [row] = await tx.$queryRaw<{ id: string }[]>`
+    INSERT INTO "account" ("workspace_id", "kind") VALUES (${workspaceId}::uuid, 'STANDARD') RETURNING "id"::text AS "id"`;
+  if (row === undefined) {
+    throw new PaymentExecutionError('EXECUTION_FAILED');
+  }
+  return row.id;
+}
+
 /** Adaptador PostgreSQL/Prisma do PaymentExecution. */
 export class PrismaPaymentExecutionStore implements PaymentExecutionStore {
   constructor(private readonly client: PrismaClient) {}

@@ -56,6 +56,7 @@ describe('migrações Prisma em banco descartável', () => {
         'model Account',
         'model AuditRecord',
         'model AuthenticationControl',
+        'model CustomerAccount',
         'model EducationalConfigRevision',
         'model LedgerEntry',
         'model OnboardingRequest',
@@ -91,6 +92,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261201000000_simulation_clock', finished: true },
       { migration_name: '20261202000000_workspace_modality_enrollment', finished: true },
       { migration_name: '20261203000000_onboarding_request', finished: true },
+      { migration_name: '20261204000000_onboarding_approval', finished: true },
     ]);
   });
 
@@ -99,7 +101,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(15);
+    expect(rows[0]?.total).toBe(16);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -123,6 +125,7 @@ describe('migrações Prisma em banco descartável', () => {
       'account',
       'audit_record',
       'authentication_control',
+      'customer_account',
       'educational_config_revision',
       'ledger_entry',
       'onboarding_request',
@@ -157,6 +160,7 @@ describe('migrações Prisma em banco descartável', () => {
       'ledger_entry_amount_nonzero',
       'onboarding_request_cpf_format',
       'onboarding_request_dates',
+      'onboarding_request_decision',
       'onboarding_request_email_normalized',
       'onboarding_request_name_length',
       'onboarding_request_password_hash_format',
@@ -189,12 +193,16 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'account_identity_immutable', deferred: false },
       { tgname: 'audit_record_immutable', deferred: false },
       { tgname: 'audit_record_no_truncate', deferred: false },
+      { tgname: 'customer_account_immutable', deferred: false },
+      { tgname: 'customer_account_kinds', deferred: false },
+      { tgname: 'customer_account_no_truncate', deferred: false },
       { tgname: 'educational_config_revision_immutable', deferred: false },
       { tgname: 'educational_config_revision_no_truncate', deferred: false },
       { tgname: 'ledger_entry_active_states', deferred: false },
       { tgname: 'ledger_entry_balanced', deferred: true },
       { tgname: 'ledger_entry_immutable', deferred: false },
       { tgname: 'ledger_entry_no_truncate', deferred: false },
+      { tgname: 'password_credential_creation', deferred: false },
       { tgname: 'payment_operation_balanced', deferred: true },
       { tgname: 'payment_operation_credit_direction', deferred: false },
       { tgname: 'payment_operation_immutable', deferred: false },
@@ -204,6 +212,7 @@ describe('migrações Prisma em banco descartável', () => {
       { tgname: 'simulation_clock_revision_no_truncate', deferred: false },
       { tgname: 'temporary_credential_facilitator', deferred: false },
       { tgname: 'temporary_credential_terminal', deferred: false },
+      { tgname: 'user_identity_creation', deferred: false },
       { tgname: 'user_identity_disable_revokes_sessions', deferred: false },
       { tgname: 'user_identity_facilitator_status', deferred: false },
       { tgname: 'user_identity_immutable', deferred: false },

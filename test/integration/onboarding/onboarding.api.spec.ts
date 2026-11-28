@@ -70,7 +70,7 @@ describe('onboarding (PactumJS, PostgreSQL real)', () => {
     await h?.close();
   });
 
-  it('solicitação válida grava PENDING normalizada, com hash Argon2id, data simulada, revisão e instante real', async () => {
+  it('solicitação válida é aprovada e gravada normalizada, com hash Argon2id, data simulada, revisão e instante real', async () => {
     await setClock(ws, '2027-03-15');
     const started = Date.now();
     const browser = await visitor();
@@ -78,10 +78,10 @@ describe('onboarding (PactumJS, PostgreSQL real)', () => {
     const reply = await submit(sent, browser);
     expect(reply.status).toBe(201);
     expect(Object.keys(reply.body).sort()).toEqual(['requestId', 'status']);
-    expect(reply.body['status']).toBe('PENDING');
+    expect(reply.body['status']).toBe('APPROVED');
     const [row] = await requests();
     expect(row).toMatchObject({
-      id: reply.body['requestId'], status: 'PENDING', name: 'Ana Fictícia', cpf: CPF_DIGITS, email: 'ana.ficticia@example.test',
+      id: reply.body['requestId'], status: 'APPROVED', name: 'Ana Fictícia', cpf: CPF_DIGITS, email: 'ana.ficticia@example.test',
       phone: '11987654321', clockRevision: 1,
     });
     expect(row?.passwordHash).toMatch(ARGON2ID);
@@ -149,7 +149,7 @@ describe('onboarding (PactumJS, PostgreSQL real)', () => {
       await setClock(ws, '2020-01-01');
       problem(await submit(body(ws, { birthDate: '2011-12-31', cpf: OTHER_CPF })), 422, 'ONBOARDING_UNDERAGE');
       const rows = await requests();
-      expect(rows.map((r) => [r.status, r.businessDate.toISOString().slice(0, 10), r.clockRevision])).toEqual([['PENDING', '2030-01-01', 1]]);
+      expect(rows.map((r) => [r.status, r.businessDate.toISOString().slice(0, 10), r.clockRevision])).toEqual([['APPROVED', '2030-01-01', 1]]);
     });
   });
 
@@ -177,10 +177,13 @@ describe('onboarding (PactumJS, PostgreSQL real)', () => {
 
     it('solicitação REJECTED libera CPF e e-mail', async () => {
       const sent = body();
-      await submit(sent);
-      await h.db.client.onboardingRequest.updateMany({ where: { workspaceId: ws.workspaceId ?? '' }, data: { status: 'REJECTED' } });
+      // Rejeição preparada pelo dono: ainda não há caminho de rejeição na aplicação.
+      await h.db.client.$executeRaw`
+        INSERT INTO "onboarding_request" ("workspace_id", "status", "name", "cpf", "birth_date", "email", "phone", "password_hash", "business_date", "clock_revision", "decided_at")
+        VALUES (${ws.workspaceId}::uuid, 'REJECTED', 'Ana Fictícia', ${CPF_DIGITS}, DATE '1990-01-01', ${sent.email}, '11987654321',
+                ${`$argon2id$v=19$m=19456,t=2,p=1$${'A'.repeat(22)}$${'A'.repeat(43)}`}, DATE '2026-01-01', 0, clock_timestamp())`;
       expect((await submit(sent)).status).toBe(201);
-      expect((await requests()).map((r) => r.status)).toEqual(['REJECTED', 'PENDING']);
+      expect((await requests()).map((r) => r.status)).toEqual(['REJECTED', 'APPROVED']);
     });
 
     it('e-mail de cliente existente no workspace também é recusado', async () => {
@@ -300,8 +303,13 @@ describe('onboarding (PactumJS, PostgreSQL real)', () => {
     expect(await insert(CPF_DIGITS, '11987654321', hash)).toBe('23505');
     expect(await insert(OTHER_CPF.replace(/\D/g, ''), '11987654321', hash, 'PENDING', 'unico@example.test')).toBe('23505');
     await h.app.client.$executeRaw`
-      INSERT INTO "onboarding_request" ("workspace_id", "status", "name", "cpf", "birth_date", "email", "phone", "password_hash", "business_date", "clock_revision")
-      VALUES (${ws.workspaceId}::uuid, 'REJECTED', 'Ana Fictícia', ${CPF_DIGITS}, DATE '1990-01-01', 'unico@example.test', '11987654321', ${hash}, DATE '2026-01-01', 0)`;
+      INSERT INTO "onboarding_request" ("workspace_id", "status", "name", "cpf", "birth_date", "email", "phone", "password_hash", "business_date", "clock_revision", "decided_at")
+      VALUES (${ws.workspaceId}::uuid, 'REJECTED', 'Ana Fictícia', ${CPF_DIGITS}, DATE '1990-01-01', 'unico@example.test', '11987654321', ${hash}, DATE '2026-01-01', 0, clock_timestamp())`;
     expect(await requests()).toHaveLength(2);
+    // Decisão coerente com o estado: aprovada exige cliente; pendente não tem instante de decisão.
+    expect(await insert(OTHER_CPF.replace(/\D/g, ''), '11987654321', hash, 'APPROVED')).toBe('23514');
+    expect(await sqlState(h.app.client.$executeRaw`
+      INSERT INTO "onboarding_request" ("workspace_id", "status", "name", "cpf", "birth_date", "email", "phone", "password_hash", "business_date", "clock_revision", "decided_at")
+      VALUES (${ws.workspaceId}::uuid, 'PENDING', 'Ana Fictícia', ${OTHER_CPF.replace(/\D/g, '')}, DATE '1990-01-01', ${`y-${randomUUID()}@example.test`}, '11987654321', ${hash}, DATE '2026-01-01', 0, clock_timestamp())`)).toBe('23514');
   });
 });

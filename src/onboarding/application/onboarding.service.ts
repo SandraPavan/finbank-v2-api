@@ -27,8 +27,11 @@ export type OnboardingInsert =
 /** Porta de persistência. */
 export interface OnboardingStore {
   findWorkspace(alias: string): Promise<OnboardingWorkspace | null>;
-  /** Numa transação sob a trava do workspace: reconfere o estado, a unicidade (inclusive clientes) e grava `PENDING`. */
-  insert(request: NewOnboardingRequest): Promise<OnboardingInsert>;
+  /**
+   * Aprovação automática numa transação sob a trava do workspace: reconfere o estado e a unicidade (inclusive clientes),
+   * cria o cliente, a senha, a conta comum e o vínculo, grava a solicitação `APPROVED` e a auditoria.
+   */
+  insert(request: NewOnboardingRequest, correlationId: string): Promise<OnboardingInsert>;
 }
 
 /** Portas dos módulos vizinhos, satisfeitas pelos serviços de inscrição e do relógio. */
@@ -77,14 +80,14 @@ export class OnboardingError extends Error {
 
 export interface SubmittedOnboarding {
   readonly requestId: string;
-  readonly status: 'PENDING';
+  readonly status: 'APPROVED';
 }
 
-/** Submissão atômica da solicitação de abertura. A aprovação fica com a história seguinte. */
+/** Submissão atômica da solicitação de abertura, aprovada automaticamente no fluxo normal. */
 export class OnboardingService {
   constructor(private readonly deps: OnboardingDependencies) {}
 
-  async submit(draft: OnboardingDraft): Promise<SubmittedOnboarding> {
+  async submit(draft: OnboardingDraft, correlationId: string): Promise<SubmittedOnboarding> {
     const { store, clock, hasher } = this.deps;
     const workspace = await store.findWorkspace(draft.alias);
     if (workspace === null) {
@@ -111,14 +114,14 @@ export class OnboardingService {
       passwordHash: await hasher.hash(draft.password),
       businessDate: today.date,
       clockRevision: today.revision,
-    });
+    }, correlationId);
     if (result.kind === 'DUPLICATE') {
       throw new OnboardingError('DUPLICATE', result.fields);
     }
     if (result.kind === 'ARCHIVED') {
       throw new OnboardingError('WORKSPACE_ARCHIVED');
     }
-    return Object.freeze({ requestId: result.requestId, status: 'PENDING' });
+    return Object.freeze({ requestId: result.requestId, status: 'APPROVED' });
   }
 
   /** Só o código inválido conta como tentativa; o par alias + e-mail limita sem travar a turma inteira. */

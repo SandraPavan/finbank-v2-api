@@ -4,7 +4,7 @@ import { AuthContext } from '../../authentication/http/auth-context.js';
 import { AuthenticationProblemFilter } from '../../authentication/http/authentication-problem.filter.js';
 import { AuthenticationAccess } from '../../http/access-policy.js';
 import type { HttpRequest, HttpResponse } from '../../http/http-types.js';
-import { type ProblemCode, ProblemError, sendProblem } from '../../http/problem.js';
+import { correlationIdOf, type ProblemCode, ProblemError, sendProblem } from '../../http/problem.js';
 import { OnboardingError, type OnboardingErrorCode, OnboardingService, type SubmittedOnboarding } from '../application/onboarding.service.js';
 import { OnboardingValidationError, parseOnboardingRequest } from '../domain/onboarding-request.js';
 
@@ -49,6 +49,6 @@ export class OnboardingController {
       throw new ProblemError('PASSWORD_CHANGE_REQUIRED');
     }
     this.context.requireCsrf(request, current?.secret ?? cookies.preauth);
-    return this.onboarding.submit(parseOnboardingRequest(body));
+    return this.onboarding.submit(parseOnboardingRequest(body), correlationIdOf(request));
   }
 }
