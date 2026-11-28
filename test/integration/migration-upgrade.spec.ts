@@ -32,6 +32,7 @@ const AFTER = [
   '20261205000000_onboarding_policy_decision',
   '20261206000000_account_status_change',
   '20261207000000_educational_credit',
+  '20261208000000_ledger_entry_statement_index',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';

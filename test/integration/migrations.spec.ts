@@ -100,6 +100,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261205000000_onboarding_policy_decision', finished: true },
       { migration_name: '20261206000000_account_status_change', finished: true },
       { migration_name: '20261207000000_educational_credit', finished: true },
+      { migration_name: '20261208000000_ledger_entry_statement_index', finished: true },
     ]);
   });
 
@@ -108,7 +109,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(19);
+    expect(rows[0]?.total).toBe(20);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -262,6 +263,10 @@ describe('migrações Prisma em banco descartável', () => {
        WHERE indexname IN ('onboarding_request_workspace_cpf', 'onboarding_request_workspace_email') ORDER BY indexname`;
     expect(onboarding[0]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id, cpf\) WHERE \(status <> 'REJECTED'/);
     expect(onboarding[1]?.indexdef).toMatch(/UNIQUE INDEX .*\(workspace_id, email\) WHERE \(status <> 'REJECTED'/);
+
+    const statement = await db.client.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes WHERE indexname = 'ledger_entry_workspace_id_account_id_created_at_id_idx'`;
+    expect(statement[0]?.indexdef).toMatch(/INDEX .*\(workspace_id, account_id, created_at DESC, id DESC\)/);
 
     const reversalLink = await db.client.$queryRaw<{ indexdef: string }[]>`
       SELECT indexdef FROM pg_indexes WHERE indexname = 'payment_operation_workspace_id_reverses_operation_id_key'`;

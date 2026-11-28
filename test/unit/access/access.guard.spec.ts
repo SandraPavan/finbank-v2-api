@@ -19,7 +19,7 @@ function setup(policy: AccessPolicy | undefined, method = 'GET') {
       steps.push(name);
       return value;
     });
-  const session = { identityId: 'i', profile: 'FACILITATOR' };
+  const session: { identityId: string; profile: string; workspaceId: string | null } = { identityId: 'i', profile: 'FACILITATOR', workspaceId: null };
   const auth = {
     read: step('transport', {}),
     required: step('session', { secret: 's', session }),
@@ -112,5 +112,55 @@ describe('AccessGuard', () => {
     });
     await expect(s.run()).rejects.toMatchObject({ code: to });
     expect(s.access.resolve).not.toHaveBeenCalled();
+  });
+
+  describe('rota de cliente', () => {
+    const CUSTOMER: AccessPolicy = { kind: 'PROFILE', profile: 'CUSTOMER', workspace: false };
+    const asCustomer = (method = 'GET') => {
+      const s = setup(CUSTOMER, method);
+      s.session.profile = 'CUSTOMER';
+      s.session.workspaceId = 'w-da-identidade';
+      s.request.params = { workspaceId: 'w-do-caminho' };
+      s.access.resolve.mockImplementation(() => {
+        s.steps.push('workspace');
+        return { identityId: 'i', workspaceId: 'w-da-identidade', role: 'CUSTOMER' };
+      });
+      return s;
+    };
+
+    it('o workspace vem da sessão, nunca do caminho, e é reconferido', async () => {
+      const s = asCustomer();
+      await expect(s.run()).resolves.toBe(true);
+      expect(s.steps).toEqual(['transport', 'session', 'workspace']);
+      expect(s.access.resolve).toHaveBeenCalledWith('i', 'w-da-identidade');
+      expect(operationContext(s.request).workspace).toMatchObject({ workspaceId: 'w-da-identidade', role: 'CUSTOMER' });
+    });
+
+    it('facilitador é recusado sem consultar o workspace', async () => {
+      const s = setup(CUSTOMER);
+      await expect(s.run()).rejects.toMatchObject({ code: 'ACCESS_DENIED' });
+      expect(s.access.resolve).not.toHaveBeenCalled();
+    });
+
+    it('cliente sem workspace na sessão ou com acesso negado não passa', async () => {
+      const s = asCustomer();
+      s.access.resolve.mockImplementation(() => {
+        throw new IdentityError('ACCESS_DENIED');
+      });
+      await expect(s.run()).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+      expect(() => operationContext(s.request)).toThrow(ProblemError);
+    });
+
+    it('papel devolvido diferente de CUSTOMER é negado', async () => {
+      const s = asCustomer();
+      s.access.resolve.mockReturnValue({ identityId: 'i', workspaceId: 'w-da-identidade', role: 'FACILITATOR' });
+      await expect(s.run()).rejects.toMatchObject({ code: 'ACCESS_DENIED' });
+    });
+
+    it('escrita de cliente confere CSRF antes do workspace', async () => {
+      const s = asCustomer('POST');
+      await s.run();
+      expect(s.steps).toEqual(['transport', 'session', 'csrf', 'workspace']);
+    });
   });
 });

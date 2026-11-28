@@ -117,7 +117,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(34);
+      expect(routes).toHaveLength(37);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
@@ -322,6 +322,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       'get /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'patch /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'get /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/statement': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/block': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/unblock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/educational-credits': { a: [403, 403], b: [403, 403], fa: [201, 404], fab: [201, 201] },
@@ -401,7 +402,11 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           const reply = await browser.api(method.toUpperCase() as Method, url, body, credit ? { 'idempotency-key': `matriz-${actor}-${i}` } : {});
           expect(reply.status, `${actor} em ${i === 0 ? 'A' : 'B'}`).toBe(expected[actor][i]);
           const own = reply.status === 200 || reply.status === 201;
-          const marks = path.includes('customers')
+          // O extrato identifica a conta, não o cliente.
+          const accountOf = async () => (await h.db.client.customerAccount.findUniqueOrThrow({ where: { identityId: target.id } })).accountId;
+          const marks = path.endsWith('/statement')
+            ? [await accountOf()]
+            : path.includes('customers')
             ? [target.id]
             : path.includes('onboarding-requests')
               ? [requestId]
@@ -432,6 +437,66 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       const writer = await enter(fa, probe.url);
       problem(await writer.api('POST', `/probe/${b.workspaceId}`, { workspaceId: a.workspaceId, profile: 'FACILITATOR' }), 404, 'RESOURCE_NOT_FOUND');
       expect(writes).toBe(0);
+    });
+  });
+
+  describe('rotas de cliente', () => {
+    const CUSTOMER_ROUTES = ['/accounts/me', '/accounts/me/statement'];
+    async function accountOf(person: Person): Promise<string> {
+      const found = await h.db.client.customerAccount.findUnique({ where: { identityId: person.id } });
+      if (found !== null) {
+        return found.accountId;
+      }
+      const account = await h.db.client.account.create({ data: { workspaceId: person.workspaceId ?? '', kind: 'STANDARD' } });
+      await h.db.client.customerAccount.create({ data: { identityId: person.id, workspaceId: person.workspaceId ?? '', accountId: account.id } });
+      return account.id;
+    }
+
+    it('são exatamente as rotas de cliente do contrato, sem workspace no caminho', () => {
+      const documented = Object.keys(OPENAPI_DOCUMENT.paths).filter((p) => p.startsWith('/api/v1/accounts/'));
+      expect(documented.sort()).toEqual(CUSTOMER_ROUTES.map((r) => `/api/v1${r}`).sort());
+    });
+
+    it.each(CUSTOMER_ROUTES)('%s: cada cliente vê só a própria conta; facilitador 403; sem sessão 401', async (route) => {
+      const own = { a: await accountOf(a), b: await accountOf(b) };
+      for (const [person, mine, theirs] of [[a, own.a, own.b], [b, own.b, own.a]] as const) {
+        const reply = await (await enter(person)).api('GET', route);
+        expect(reply.status).toBe(200);
+        expect(reply.body['accountId']).toBe(mine);
+        expect(reply.text).not.toContain(theirs);
+        expect(reply.text).not.toContain(person.workspaceId ?? '-');
+      }
+      for (const facilitator of [fa, fab]) {
+        problem(await (await enter(facilitator)).api('GET', route), 403, 'ACCESS_DENIED');
+      }
+      problem(await call(server.url, 'GET', `/api/v1${route}`), 401, 'AUTH_SESSION_REQUIRED');
+    });
+
+    it('workspace, cliente ou conta forjados em cabeçalho, query ou cookie não mudam a conta', async () => {
+      const mine = await accountOf(a);
+      const theirs = await accountOf(b);
+      const browser = await enter(a);
+      const forged = { 'x-workspace-id': b.workspaceId ?? '', 'x-identity-id': b.id, 'x-account-id': theirs, cookie: `${browser.cookie}; workspaceId=${b.workspaceId}` };
+      const reply = await browser.api('GET', '/accounts/me', undefined, forged);
+      expect(reply.body['accountId']).toBe(mine);
+      for (const query of [`workspaceId=${b.workspaceId}`, `customerId=${b.id}`, `accountId=${theirs}`]) {
+        problem(await browser.api('GET', `/accounts/me?${query}`), 400, 'VALIDATION_ERROR');
+        problem(await browser.api('GET', `/accounts/me/statement?${query}`), 400, 'VALIDATION_ERROR');
+      }
+    });
+
+    it('identidade desativada perde o acesso na requisição seguinte', async () => {
+      await accountOf(a);
+      const browser = await enter(a);
+      expect((await browser.api('GET', '/accounts/me')).status).toBe(200);
+      await h.db.client.userIdentity.update({ where: { id: a.id }, data: { status: 'DISABLED' } });
+      try {
+        const reply = await browser.api('GET', '/accounts/me');
+        expect([401, 404]).toContain(reply.status);
+        expect(reply.text).not.toContain(await accountOf(a));
+      } finally {
+        await h.db.client.userIdentity.update({ where: { id: a.id }, data: { status: 'ACTIVE' } });
+      }
     });
   });
 

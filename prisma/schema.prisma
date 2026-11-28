@@ -213,6 +213,8 @@ model LedgerEntry {
 
   @@unique([operationId, accountId])
   @@index([workspaceId, accountId])
+  /// Extrato: lançamentos da conta do mais recente ao mais antigo, com desempate pelo id.
+  @@index([workspaceId, accountId, createdAt(sort: Desc), id(sort: Desc)])
   @@map("ledger_entry")
 }
 

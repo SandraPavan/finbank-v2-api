@@ -1,4 +1,4 @@
-import { type ArgumentsHost, Body, Catch, Controller, type ExceptionFilter, Get, HttpCode, Param, Post, Req, Res, UseFilters } from '@nestjs/common';
+import { type ArgumentsHost, Body, Catch, Controller, type ExceptionFilter, Get, HttpCode, Param, Post, Query, Req, Res, UseFilters } from '@nestjs/common';
 import { IdentityProblemFilter } from '../../access/http/access-problems.js';
 import { CurrentWorkspace } from '../../access/http/operation-context.js';
 import { FacilitatorWorkspaceAccess, WORKSPACE_PARAM } from '../../http/access-policy.js';
@@ -15,6 +15,8 @@ import {
 import { InvalidJustificationError, parseJustification } from '../domain/account-status.js';
 import { type CreditView, EducationalCreditError, type EducationalCreditErrorCode, EducationalCreditService } from '../application/educational-credit.service.js';
 import { InvalidCreditRequestError } from '../domain/educational-credit.js';
+import { InvalidStatementQueryError, StatementDataError } from '../domain/statement.js';
+import { AccountStatementService, type StatementPage } from '../application/account-statement.service.js';
 
 const CODES: Record<BankAccountErrorCode, ProblemCode> = {
   NOT_FOUND: 'RESOURCE_NOT_FOUND',
@@ -31,7 +33,15 @@ const CREDIT_CODES: Record<EducationalCreditErrorCode, ProblemCode> = {
   IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
 };
 
-function problemOf(error: BankAccountError | InvalidJustificationError | InvalidCreditRequestError | EducationalCreditError): ProblemError {
+type AccountProblem = BankAccountError | InvalidJustificationError | InvalidCreditRequestError | EducationalCreditError | InvalidStatementQueryError | StatementDataError;
+
+function problemOf(error: AccountProblem): ProblemError {
+  if (error instanceof InvalidStatementQueryError) {
+    return new ProblemError('VALIDATION_ERROR', error.fields.length > 0 ? { fields: error.fields } : {});
+  }
+  if (error instanceof StatementDataError) {
+    return new ProblemError('INTERNAL_ERROR');
+  }
   if (error instanceof InvalidJustificationError) {
     return new ProblemError('VALIDATION_ERROR', { fields: ['justification'] });
   }
@@ -44,10 +54,10 @@ function problemOf(error: BankAccountError | InvalidJustificationError | Invalid
   return new ProblemError(CODES[error.code]);
 }
 
-/** Erros da conta e do crédito sem detalhe: nunca a justificativa, o valor ou a chave recebidos. */
-@Catch(BankAccountError, InvalidJustificationError, InvalidCreditRequestError, EducationalCreditError)
+/** Erros da conta, do crédito e do extrato sem detalhe: nunca a justificativa, o valor, a chave ou o cursor recebidos. */
+@Catch(BankAccountError, InvalidJustificationError, InvalidCreditRequestError, EducationalCreditError, InvalidStatementQueryError, StatementDataError)
 export class BankAccountProblemFilter implements ExceptionFilter {
-  catch(error: BankAccountError | InvalidJustificationError | InvalidCreditRequestError | EducationalCreditError, host: ArgumentsHost): void {
+  catch(error: AccountProblem, host: ArgumentsHost): void {
     const problem = problemOf(error);
     const http = host.switchToHttp();
     sendProblem(http.getRequest<HttpRequest>(), http.getResponse<HttpResponse>(), problem);
@@ -56,7 +66,7 @@ export class BankAccountProblemFilter implements ExceptionFilter {
 
 const CUSTOMER_PARAM = 'customerId';
 
-/** Conta do cliente: consulta, bloqueio e desbloqueio pelo facilitador vinculado. O saldo nunca é tocado. */
+/** Conta do cliente pelo facilitador vinculado: consulta com saldo, extrato, bloqueio, desbloqueio e crédito educacional. */
 @Controller(`api/v1/facilitator/workspaces/:${WORKSPACE_PARAM}/customers/:${CUSTOMER_PARAM}/account`)
 @FacilitatorWorkspaceAccess()
 @UseFilters(IdentityProblemFilter, BankAccountProblemFilter)
@@ -64,11 +74,18 @@ export class BankAccountController {
   constructor(
     private readonly accounts: BankAccountService,
     private readonly credits: EducationalCreditService,
+    private readonly statements: AccountStatementService,
   ) {}
 
   @Get()
   view(@CurrentWorkspace() access: WorkspaceAccess, @Param(CUSTOMER_PARAM) customerId: string): Promise<CustomerAccountView> {
     return this.accounts.view(access, customerId);
+  }
+
+  /** Extrato da conta do cliente, somente leitura. */
+  @Get('statement')
+  statement(@CurrentWorkspace() access: WorkspaceAccess, @Param(CUSTOMER_PARAM) customerId: string, @Query() query: Record<string, unknown>): Promise<StatementPage> {
+    return this.statements.customerStatement(access, customerId, query);
   }
 
   @Post('block')

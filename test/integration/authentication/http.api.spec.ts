@@ -436,7 +436,7 @@ describe('autenticação por HTTP (PactumJS, PostgreSQL real)', () => {
         layer.route === undefined ? [] : Object.keys(layer.route.methods).map((m) => `${m} ${layer.route?.path}`),
       );
       const documented = Object.entries(OPENAPI_DOCUMENT.paths).flatMap(([path, item]) => Object.keys(item).map((m) => `${m} ${path}`));
-      expect(documented.length).toBe(32);
+      expect(documented.length).toBe(35);
       expect(registered.filter((r) => r.includes('/api/')).map((r) => r.replace(/:(\w+)/g, '{$1}')).sort()).toEqual(documented.sort());
     });
 

@@ -202,6 +202,7 @@ describe('arquitetura da autorização', () => {
       'administration/http/facilitator-customers.controller.ts',
       'app.module.ts',
       'bank-account/http/bank-account.controller.ts',
+      'bank-account/http/customer-account.controller.ts',
       'education/http/educational-config.controller.ts',
       'enrollment/http/enrollment.controller.ts',
       'onboarding/http/onboarding-administration.controller.ts',
@@ -408,12 +409,15 @@ describe('abertura de conta do cliente', () => {
   it('fora do próprio módulo, só abertura de conta, mudança de estado, contrapartida e crédito do PaymentExecution são usados', () => {
     const users = files.filter((f) => !f.path.startsWith('payment-execution/') && imports(f.text).some((s) => /payment-execution\/adapters/.test(s)));
     expect(users.map((f) => f.path).sort()).toEqual([
+      'bank-account/adapters/prisma-account-statement.reader.ts',
       'bank-account/adapters/prisma-bank-account.store.ts',
       'bank-account/adapters/prisma-educational-credit.store.ts',
       'onboarding/adapters/prisma-onboarding.store.ts',
     ]);
     const uses = users.flatMap((f) => [...f.text.matchAll(/import \{([^}]+)\} from '[^']*payment-execution\/adapters[^']*'/g)].map((m) => m[1]?.trim()));
-    expect(uses.flatMap((u) => (u ?? '').split(',').map((x) => x.trim())).sort()).toEqual(['changeAccountStatus', 'creditWithin', 'ensureContraAccount', 'openCustomerAccount']);
+    expect(uses.flatMap((u) => (u ?? '').split(',').map((x) => x.trim())).sort()).toEqual([
+      'changeAccountStatus', 'creditWithin', 'ensureContraAccount', 'openCustomerAccount', 'readAccountEntries', 'readCustomerAccount', 'readCustomerAccount',
+    ]);
   });
 });
 
@@ -425,7 +429,8 @@ describe('arquitetura da conta do cliente', () => {
     expect(inner.length).toBeGreaterThan(0);
     for (const file of inner) {
       for (const spec of imports(file.text)) {
-        expect(spec, file.path).toMatch(/^\.\.\/domain\/|^\.\/[a-z-]+\.js$|^\.\.\/\.\.\/identity\/domain\/workspace-access\.js$/);
+        // Mesma camada (`./x.js` ou `./x.service.js`), domínio do módulo e o tipo de acesso confirmado.
+        expect(spec, file.path).toMatch(/^\.\.\/domain\/|^\.\/[a-z-]+(\.[a-z]+)?\.js$|^\.\.\/\.\.\/identity\/domain\/workspace-access\.js$/);
       }
     }
   });

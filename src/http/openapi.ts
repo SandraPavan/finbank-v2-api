@@ -128,6 +128,7 @@ const DEFECT_ID = { type: 'string', pattern: '^d-[0-9a-f]{16}$' };
 const BUSINESS_DATE = { type: 'string', pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' };
 const ONBOARDING_STATUS = { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] };
 const ACCOUNT_STATUS = { type: 'string', enum: ['ACTIVE', 'BLOCKED'] };
+const MONEY = { type: 'string', pattern: '^[0-9]+\\.[0-9]{2}$', description: 'Reais com duas casas' };
 const ACCOUNT_STATE_FIELDS = {
   workspaceId: { type: 'string', format: 'uuid' },
   customerId: { type: 'string', format: 'uuid' },
@@ -414,6 +415,23 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/statement': {
+      get: {
+        operationId: 'getCustomerStatement',
+        summary: 'Extrato da conta do cliente: lançamentos concluídos, do mais recente ao mais antigo',
+        security: SESSION_SECURITY,
+        parameters: [
+          { $ref: '#/components/parameters/WorkspaceId' },
+          { $ref: '#/components/parameters/CustomerId' },
+          { $ref: '#/components/parameters/StatementLimit' },
+          { $ref: '#/components/parameters/StatementCursor' },
+        ],
+        responses: {
+          200: { description: 'Página do extrato', headers: CORRELATION, content: json('Statement') },
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+    },
     '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/block': accountStatus('blockCustomerAccount', 'Bloqueia a conta: não envia nem recebe movimentações'),
     '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/unblock': accountStatus('unblockCustomerAccount', 'Desbloqueia a conta'),
     '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/educational-credits': {
@@ -432,6 +450,29 @@ export const OPENAPI_DOCUMENT = {
           201: { description: 'Crédito executado', headers: CORRELATION, content: json('EducationalCredit') },
           200: { description: 'Repetição da mesma chave e do mesmo conteúdo: o crédito original', headers: CORRELATION, content: json('EducationalCredit') },
           ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED', 'ACCOUNT_BLOCKED', 'IDEMPOTENCY_CONFLICT', 'CREDIT_LIMIT_EXCEEDED'),
+        },
+      },
+    },
+    '/api/v1/accounts/me': {
+      get: {
+        operationId: 'getOwnAccount',
+        summary: 'Conta do próprio cliente com o saldo materializado; o workspace é o da identidade',
+        security: SESSION_SECURITY,
+        responses: {
+          200: { description: 'Conta e saldo', headers: CORRELATION, content: json('OwnAccount') },
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+    },
+    '/api/v1/accounts/me/statement': {
+      get: {
+        operationId: 'getOwnStatement',
+        summary: 'Extrato do próprio cliente: lançamentos concluídos, do mais recente ao mais antigo',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/StatementLimit' }, { $ref: '#/components/parameters/StatementCursor' }],
+        responses: {
+          200: { description: 'Página do extrato', headers: CORRELATION, content: json('Statement') },
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
         },
       },
     },
@@ -507,6 +548,19 @@ export const OPENAPI_DOCUMENT = {
         in: 'query',
         required: false,
         schema: { type: 'integer', minimum: 1, maximum: PAGE_MAX_LIMIT, default: PAGE_DEFAULT_LIMIT },
+      },
+      StatementLimit: {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 1, maximum: PAGE_MAX_LIMIT, default: PAGE_DEFAULT_LIMIT },
+      },
+      StatementCursor: {
+        name: 'cursor',
+        in: 'query',
+        required: false,
+        description: 'Opaco: o nextCursor da página anterior',
+        schema: { type: 'string' },
       },
       Offset: {
         name: 'offset',
@@ -635,6 +689,7 @@ export const OPENAPI_DOCUMENT = {
       AccountState: fields(ACCOUNT_STATE_FIELDS),
       CustomerAccount: fields({
         ...ACCOUNT_STATE_FIELDS,
+        balance: MONEY,
         history: {
           type: 'array',
           items: fields({
@@ -645,6 +700,30 @@ export const OPENAPI_DOCUMENT = {
             changedAt: { type: 'string', format: 'date-time' },
           }),
         },
+      }),
+      OwnAccount: fields({
+        accountId: { type: 'string', format: 'uuid' },
+        status: ACCOUNT_STATUS,
+        balance: MONEY,
+        currency: { type: 'string', enum: ['BRL'] },
+      }),
+      Statement: fields({
+        accountId: { type: 'string', format: 'uuid' },
+        items: {
+          type: 'array',
+          items: fields({
+            entryId: { type: 'string', format: 'uuid' },
+            operationId: { type: 'string', format: 'uuid' },
+            type: { type: 'string', enum: ['EDUCATIONAL_CREDIT', 'TRANSFER', 'REVERSAL'] },
+            modality: { type: ['string', 'null'], enum: ['PIX_KEY', 'PIX_COPY_PASTE', 'PIX_QR_STATIC', null] },
+            direction: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
+            amount: { ...MONEY, description: 'Sempre positivo; a direção diz se entrou ou saiu' },
+            status: { type: 'string', enum: ['COMPLETED'] },
+            reversesOperationId: { type: ['string', 'null'], format: 'uuid' },
+            occurredAt: { type: 'string', format: 'date-time' },
+          }),
+        },
+        nextCursor: { type: ['string', 'null'], description: 'Continuação; null na última página' },
       }),
       SimulationClock: fields({
         workspaceId: { type: 'string', format: 'uuid' },

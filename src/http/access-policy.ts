@@ -5,6 +5,8 @@ import { SetMetadata } from '@nestjs/common';
  * - PUBLIC: sem identidade.
  * - AUTHENTICATION: a própria rota aplica os controles de contexto e CSRF.
  * - perfil: exige sessão e perfil; com `workspace`, também vínculo com o workspace do caminho.
+ *   Para o perfil CUSTOMER, o workspace é sempre o da própria identidade (pela sessão), reconferido a cada requisição;
+ *   rotas de cliente não têm workspace no caminho.
  */
 export type AccessPolicy =
   | { readonly kind: 'PUBLIC' }
@@ -20,5 +22,6 @@ const declare = (policy: AccessPolicy) => SetMetadata(ACCESS_POLICY, Object.free
 
 export const PublicAccess = () => declare({ kind: 'PUBLIC' });
 export const AuthenticationAccess = () => declare({ kind: 'AUTHENTICATION' });
+export const CustomerAccess = () => declare({ kind: 'PROFILE', profile: 'CUSTOMER', workspace: false });
 export const FacilitatorAccess = () => declare({ kind: 'PROFILE', profile: 'FACILITATOR', workspace: false });
 export const FacilitatorWorkspaceAccess = () => declare({ kind: 'PROFILE', profile: 'FACILITATOR', workspace: true });

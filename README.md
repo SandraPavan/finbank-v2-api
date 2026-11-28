@@ -194,6 +194,7 @@ Um ambiente novo não tem quem possa entrar: crie o acesso pela linha de comando
 - **404:** workspace inexistente, sem vínculo, com vínculo revogado ou identificador malformado recebem a mesma resposta. Falha do banco é 503 e nunca concede acesso.
 - **Sem cache:** vínculo, identidade e sessão são conferidos a cada requisição. O workspace vem só do caminho; cabeçalho, query e corpo não influenciam.
 - **Rota nova com workspace:** use `{workspaceId}`, `@FacilitatorWorkspaceAccess()` e `@CurrentWorkspace()` (nunca `@Param`), e inclua-a na matriz de `test/integration/access/`. A guarda não cobre revogação concorrente: escritas devem reconferir o acesso na própria transação.
+- **Rota de cliente (DEV-032):** `@CustomerAccess()`, sem workspace no caminho. A guarda resolve o workspace pela sessão (o da identidade, imutável) e reconfere a identidade a cada requisição; `@CurrentWorkspace()` entrega esse acesso. Facilitador nessas rotas recebe 403.
 
 ## Administração (DEV-019)
 
@@ -341,6 +342,22 @@ Os testes ficam em `test/unit/education/`, com catálogo e operações fictício
 - **Idempotência:** chave do núcleo = SHA-256 de `educational-credit|ator|chave`. A mesma chave e o mesmo conteúdo (cliente, valor e justificativa) devolvem o crédito original, mesmo depois de bloqueio ou de um limite menor; conteúdo diferente 409 `IDEMPOTENCY_CONFLICT`. A mesma chave de outro facilitador é outra intenção.
 - Conta bloqueada 409 `ACCOUNT_BLOCKED`; cliente alheio, inexistente, malformado ou sem conta 404; arquivado 409. Crédito não é estornável no MVP.
 - **Migração `20261207000000_educational_credit`:** aditiva.
+
+## Saldo e extrato (DEV-032)
+
+Somente leitura: o saldo é o materializado e o extrato são os lançamentos do ledger da conta, lidos por funções de leitura do adaptador do PaymentExecution (`prisma-account-ledger.reader.ts`), sem escrita.
+
+| Rota | Quem | Resposta |
+|---|---|---|
+| `GET /api/v1/accounts/me` | Cliente (a própria conta) | `{ accountId, status, balance, currency: "BRL" }` |
+| `GET /api/v1/accounts/me/statement?limit=20&cursor=` | Cliente | `{ accountId, items, nextCursor }` |
+| `GET /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account` | Facilitador vinculado | Estado, histórico e `balance` |
+| `GET .../customers/{customerId}/account/statement?limit=20&cursor=` | Facilitador vinculado | O mesmo extrato do cliente |
+
+- **Item:** `entryId`, `operationId`, `type` (`EDUCATIONAL_CREDIT`, `TRANSFER`, `REVERSAL`), `modality` (ou `null`), `direction` (`CREDIT`/`DEBIT`), `amount` (texto decimal, sempre positivo), `status: "COMPLETED"`, `reversesOperationId` (ou `null`) e `occurredAt` (instante real do lançamento). A contrapartida e as contas de terceiros nunca aparecem.
+- **Paginação por cursor:** do mais recente ao mais antigo, com desempate pelo identificador do lançamento; `limit` de 1 a 100 (padrão 20); `cursor` é opaco (o `nextCursor` da página anterior, `null` na última). A consulta é sempre restrita à conta da sessão ou do vínculo: um cursor de outra conta só posiciona. Lançamentos novos durante a navegação não repetem nem pulam itens já listados. Parâmetro desconhecido, repetido ou fora do formato: 400.
+- Conta bloqueada e workspace arquivado continuam legíveis; cliente sem conta 404; sessão restrita 403 `PASSWORD_CHANGE_REQUIRED`. Leituras não geram auditoria.
+- **Migração `20261208000000_ledger_entry_statement_index`:** aditiva (índice do extrato).
 
 ## Relógio simulado (DEV-025)
 

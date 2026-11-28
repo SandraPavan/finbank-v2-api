@@ -14,7 +14,8 @@ type RoutedRequest = HttpRequest & { readonly params: Readonly<Record<string, un
 const SAFE_METHODS = new Set(['GET', 'HEAD']);
 
 /**
- * Guarda de todas as rotas. Ordem fixa: política, transporte e cookies, sessão, perfil, CSRF, workspace.
+ * Guarda de todas as rotas. Ordem fixa: política, transporte e cookies, sessão, perfil, CSRF, workspace
+ * (do caminho para o facilitador; da identidade para o cliente).
  * O vínculo é consultado a cada requisição. Escritas devem reconferi-lo na própria transação.
  */
 @Injectable()
@@ -46,8 +47,10 @@ export class AccessGuard implements CanActivate {
         this.auth.requireCsrf(request, secret);
       }
       let workspace: WorkspaceAccess | null = null;
-      if (policy.workspace) {
-        workspace = await this.access.resolve(session.identityId, request.params[WORKSPACE_PARAM]);
+      if (policy.workspace || policy.profile === 'CUSTOMER') {
+        // Cliente: o workspace da identidade, nunca um recebido; o caminho de uma rota de cliente não o informa.
+        const requested = policy.profile === 'CUSTOMER' ? session.workspaceId : request.params[WORKSPACE_PARAM];
+        workspace = await this.access.resolve(session.identityId, requested);
         if (workspace.role !== policy.profile) {
           throw new ProblemError('ACCESS_DENIED');
         }
