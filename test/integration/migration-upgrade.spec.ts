@@ -30,6 +30,7 @@ const AFTER = [
   '20261203000000_onboarding_request',
   '20261204000000_onboarding_approval',
   '20261205000000_onboarding_policy_decision',
+  '20261206000000_account_status_change',
 ];
 
 const WS = '11111111-1111-4111-8111-111111111111';
@@ -134,6 +135,7 @@ describe('migração aditiva sobre dados existentes', () => {
     expect(await db.onboardingRequest.count()).toBe(0);
     expect(await db.customerAccount.count()).toBe(0);
     expect(await db.onboardingPolicyRevision.count()).toBe(0);
+    expect(await db.accountStatusChange.count()).toBe(0);
 
     // Estorno e reconciliação pelo usuário de execução, com as concessões da migração nova.
     runtime = new PrismaService({ databaseUrl: appUpgradeUrl });

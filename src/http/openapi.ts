@@ -82,6 +82,20 @@ const decision = (operationId: string, summary: string) => ({
   },
 });
 
+const accountStatus = (operationId: string, summary: string) => ({
+  post: {
+    operationId,
+    summary: `${summary}. O mesmo estado devolve o atual sem gravar; o saldo nunca é tocado`,
+    security: SESSION_SECURITY,
+    parameters: [{ $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CustomerId' }, ...CSRF_PARAMETER],
+    requestBody: { required: true, content: json('AccountStatusChange') },
+    responses: {
+      200: { description: 'Estado da conta', headers: CORRELATION, content: json('AccountState') },
+      ...problems(...POST, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND', 'WORKSPACE_ARCHIVED'),
+    },
+  },
+});
+
 const text = { type: 'string' };
 const fields = (properties: Record<string, unknown>) => ({
   type: 'object',
@@ -113,6 +127,13 @@ const WORKSPACE_FIELDS = {
 const DEFECT_ID = { type: 'string', pattern: '^d-[0-9a-f]{16}$' };
 const BUSINESS_DATE = { type: 'string', pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' };
 const ONBOARDING_STATUS = { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] };
+const ACCOUNT_STATUS = { type: 'string', enum: ['ACTIVE', 'BLOCKED'] };
+const ACCOUNT_STATE_FIELDS = {
+  workspaceId: { type: 'string', format: 'uuid' },
+  customerId: { type: 'string', format: 'uuid' },
+  accountId: { type: 'string', format: 'uuid' },
+  status: ACCOUNT_STATUS,
+};
 const CUSTOMER_FIELDS = {
   customerId: { type: 'string', format: 'uuid' },
   status: { type: 'string', enum: ['ACTIVE', 'DISABLED'] },
@@ -381,6 +402,20 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account': {
+      get: {
+        operationId: 'getCustomerAccount',
+        summary: 'Estado da conta do cliente e histórico de bloqueios, do mais recente ao mais antigo',
+        security: SESSION_SECURITY,
+        parameters: [{ $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CustomerId' }],
+        responses: {
+          200: { description: 'Conta e histórico', headers: CORRELATION, content: json('CustomerAccount') },
+          ...problems(...COMMON, ...SESSION, ...RECOVERY, 'RESOURCE_NOT_FOUND'),
+        },
+      },
+    },
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/block': accountStatus('blockCustomerAccount', 'Bloqueia a conta: não envia nem recebe movimentações'),
+    '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/unblock': accountStatus('unblockCustomerAccount', 'Desbloqueia a conta'),
     '/api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/disable': customerState(
       'disableCustomer',
       'Desativa o cliente e encerra as sessões dele',
@@ -556,6 +591,21 @@ export const OPENAPI_DOCUMENT = {
         workspaceId: { type: 'string', format: 'uuid' },
         requestId: { type: 'string', format: 'uuid' },
         status: { type: 'string', enum: ['APPROVED', 'REJECTED'] },
+      }),
+      AccountStatusChange: fields({ justification: { type: 'string', description: '10 a 200 caracteres; fica só no histórico da conta' } }),
+      AccountState: fields(ACCOUNT_STATE_FIELDS),
+      CustomerAccount: fields({
+        ...ACCOUNT_STATE_FIELDS,
+        history: {
+          type: 'array',
+          items: fields({
+            fromStatus: ACCOUNT_STATUS,
+            toStatus: ACCOUNT_STATUS,
+            justification: text,
+            changedBy: { type: 'string', format: 'uuid' },
+            changedAt: { type: 'string', format: 'date-time' },
+          }),
+        },
       }),
       SimulationClock: fields({
         workspaceId: { type: 'string', format: 'uuid' },

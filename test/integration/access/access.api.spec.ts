@@ -117,7 +117,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
           return [{ path: `${base}/${path}`, policy }];
         }),
       );
-      expect(routes).toHaveLength(30);
+      expect(routes).toHaveLength(33);
       for (const { path, policy } of routes) {
         expect(policy, path).toBeDefined();
         expect(policy?.kind === 'PROFILE' && policy.workspace, path).toBe(path.includes(':workspaceId'));
@@ -321,12 +321,23 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
       'delete /api/v1/facilitator/workspaces/{workspaceId}/enrollment-code': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'patch /api/v1/facilitator/workspaces/{workspaceId}/clock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'get /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/block': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
+      'post /api/v1/facilitator/workspaces/{workspaceId}/customers/{customerId}/account/unblock': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/onboarding-policy': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'patch /api/v1/facilitator/workspaces/{workspaceId}/onboarding-policy': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'get /api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests/{requestId}/approve': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
       'post /api/v1/facilitator/workspaces/{workspaceId}/onboarding-requests/{requestId}/reject': { a: [403, 403], b: [403, 403], fa: [200, 404], fab: [200, 200] },
     };
+    /** Conta do cliente preparada pelo dono, para as rotas de conta (clientes de teste nascem sem conta). */
+    async function ensureAccount(target: Person): Promise<void> {
+      if ((await h.db.client.customerAccount.count({ where: { identityId: target.id } })) > 0) {
+        return;
+      }
+      const account = await h.db.client.account.create({ data: { workspaceId: target.workspaceId ?? '', kind: 'STANDARD' } });
+      await h.db.client.customerAccount.create({ data: { identityId: target.id, workspaceId: target.workspaceId ?? '', accountId: account.id } });
+    }
     /** Uma solicitação PENDING por rota e workspace, preparada pelo dono, para as rotas de solicitação. */
     const pending = new Map<string, string>();
     async function pendingFor(route: string, workspaceId: string): Promise<string> {
@@ -362,6 +373,9 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
         const browser = await enter(people[actor]);
         for (const [i, target] of [a, b].entries()) {
           const requestId = path.includes('onboarding-requests') ? await pendingFor(route, target.workspaceId ?? '') : '';
+          if (path.includes('/account')) {
+            await ensureAccount(target);
+          }
           const url = path
             .replace('/api/v1', '')
             .replace('{workspaceId}', target.workspaceId ?? '')
@@ -374,7 +388,7 @@ describe('autorização por operação (PactumJS, PostgreSQL real)', () => {
             : path.includes('onboarding-policy')
               ? { mode: 'MANUAL' }
               : { configuration: { mode: 'STUDENT', preset: { kind: 'NONE' } } };
-          const body = method === 'patch' ? { baseRevision: base, ...change } : undefined;
+          const body = method === 'patch' ? { baseRevision: base, ...change } : /account\/(block|unblock)$/.test(path) ? { justification: 'Exercício de bloqueio da turma' } : undefined;
           const reply = await browser.api(method.toUpperCase() as Method, url, body);
           expect(reply.status, `${actor} em ${i === 0 ? 'A' : 'B'}`).toBe(expected[actor][i]);
           const own = reply.status === 200;

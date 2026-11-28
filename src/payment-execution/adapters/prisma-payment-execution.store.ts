@@ -163,6 +163,31 @@ export async function openCustomerAccount(tx: Pick<Prisma.TransactionClient, '$q
   return row.id;
 }
 
+/**
+ * Muda o estado de uma conta comum do workspace dentro da transação de quem chama, sob a mesma trava de linha
+ * das movimentações: bloqueio e movimentação ficam serializados. Nunca toca o saldo.
+ * Devolve o estado anterior, ou null se a conta comum não existe no workspace.
+ */
+export async function changeAccountStatus(
+  tx: Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw'>,
+  workspaceId: string,
+  accountId: string,
+  status: AccountStatus,
+): Promise<AccountStatus | null> {
+  const [row] = await tx.$queryRaw<{ status: AccountStatus }[]>`
+    SELECT "status"::text AS "status" FROM "account"
+     WHERE "workspace_id" = ${workspaceId}::uuid AND "id" = ${accountId}::uuid AND "kind" = 'STANDARD'
+     FOR NO KEY UPDATE`;
+  if (row === undefined) {
+    return null;
+  }
+  if (row.status !== status) {
+    await tx.$executeRaw`
+      UPDATE "account" SET "status" = ${status}::"account_status" WHERE "workspace_id" = ${workspaceId}::uuid AND "id" = ${accountId}::uuid`;
+  }
+  return row.status;
+}
+
 /** Adaptador PostgreSQL/Prisma do PaymentExecution. */
 export class PrismaPaymentExecutionStore implements PaymentExecutionStore {
   constructor(private readonly client: PrismaClient) {}

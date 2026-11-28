@@ -201,6 +201,7 @@ describe('arquitetura da autorização', () => {
     expect(users.map((f) => f.path).sort()).toEqual([
       'administration/http/facilitator-customers.controller.ts',
       'app.module.ts',
+      'bank-account/http/bank-account.controller.ts',
       'education/http/educational-config.controller.ts',
       'enrollment/http/enrollment.controller.ts',
       'onboarding/http/onboarding-administration.controller.ts',
@@ -404,10 +405,33 @@ describe('arquitetura do onboarding', () => {
 });
 
 describe('abertura de conta do cliente', () => {
-  it('só o adaptador do onboarding usa a abertura de conta do PaymentExecution, e só ela fora do próprio módulo', () => {
+  it('fora do próprio módulo, só a abertura de conta (onboarding) e a mudança de estado (conta) do PaymentExecution são usadas', () => {
     const users = files.filter((f) => !f.path.startsWith('payment-execution/') && imports(f.text).some((s) => /payment-execution\/adapters/.test(s)));
-    expect(users.map((f) => f.path)).toEqual(['onboarding/adapters/prisma-onboarding.store.ts']);
+    expect(users.map((f) => f.path).sort()).toEqual(['bank-account/adapters/prisma-bank-account.store.ts', 'onboarding/adapters/prisma-onboarding.store.ts']);
     const uses = users.flatMap((f) => [...f.text.matchAll(/import \{([^}]+)\} from '[^']*payment-execution\/adapters[^']*'/g)].map((m) => m[1]?.trim()));
-    expect(uses).toEqual(['openCustomerAccount']);
+    expect(uses.sort()).toEqual(['changeAccountStatus', 'openCustomerAccount']);
+  });
+});
+
+describe('arquitetura da conta do cliente', () => {
+  const module = files.filter((f) => f.path.startsWith('bank-account/'));
+
+  it('domínio e aplicação não importam NestJS, Prisma, Node, HTTP nem adaptadores', () => {
+    const inner = module.filter((f) => /^bank-account\/(domain|application)\//.test(f.path));
+    expect(inner.length).toBeGreaterThan(0);
+    for (const file of inner) {
+      for (const spec of imports(file.text)) {
+        expect(spec, file.path).toMatch(/^\.\.\/domain\/|^\.\.\/\.\.\/identity\/domain\/workspace-access\.js$/);
+      }
+    }
+  });
+
+  it('não escreve saldos nem contas diretamente, não registra logs; só a raiz o compõe', () => {
+    for (const file of module) {
+      expect(file.text, file.path).not.toMatch(FINANCIAL_WRITE);
+      expect(file.text, file.path).not.toMatch(/console\.|Logger|balance_cents|balanceCents/);
+    }
+    const users = files.filter((f) => !f.path.startsWith('bank-account/') && imports(f.text).some((s) => /\/bank-account\//.test(s)));
+    expect(users.map((f) => f.path)).toEqual(['app.module.ts']);
   });
 });

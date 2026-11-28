@@ -11,6 +11,7 @@
 // DEV-027: solicitações de abertura (onboarding).
 // DEV-028: aprovação automática, cliente com conta e ator SYSTEM.
 // DEV-029: política de aprovação em revisões, credencial de consulta e decisão do facilitador.
+// DEV-030: histórico de bloqueio e desbloqueio de conta.
 // Restrições que o Prisma não expressa (CHECKs, índice parcial, imutabilidade e
 // equilíbrio) estão na migração SQL correspondente.
 
@@ -151,17 +152,18 @@ model Workspace {
 
 /// Conta técnica com saldo materializado. Alterada somente pelo módulo payment-execution.
 model Account {
-  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId   String             @map("workspace_id") @db.Uuid
+  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String                @map("workspace_id") @db.Uuid
   kind          AccountKind
-  balanceCents  BigInt             @default(0) @map("balance_cents")
-  status        AccountStatus      @default(ACTIVE)
-  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
-  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  debits        PaymentOperation[] @relation("debit")
-  credits       PaymentOperation[] @relation("credit")
+  balanceCents  BigInt                @default(0) @map("balance_cents")
+  status        AccountStatus         @default(ACTIVE)
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  workspace     Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  debits        PaymentOperation[]    @relation("debit")
+  credits       PaymentOperation[]    @relation("credit")
   entries       LedgerEntry[]
   customerLinks CustomerAccount[]
+  statusChanges AccountStatusChange[]
 
   @@unique([workspaceId, id])
   @@map("account")
@@ -233,6 +235,7 @@ model UserIdentity {
   onboarding           OnboardingRequest?
   accountLinks         CustomerAccount[]
   onboardingPolicies   OnboardingPolicyRevision[]
+  accountStatusChanges AccountStatusChange[]
 
   @@unique([id, profile])
   @@unique([id, workspaceId])
@@ -446,4 +449,21 @@ model OnboardingPolicyRevision {
 
   @@id([workspaceId, revision])
   @@map("onboarding_policy_revision")
+}
+
+/// Histórico de estado da conta (só inserção): quem bloqueou ou desbloqueou, quando e por quê.
+model AccountStatusChange {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String        @map("workspace_id") @db.Uuid
+  accountId     String        @map("account_id") @db.Uuid
+  fromStatus    AccountStatus @map("from_status")
+  toStatus      AccountStatus @map("to_status")
+  justification String        @db.VarChar(400)
+  changedBy     String        @map("changed_by") @db.Uuid
+  changedAt     DateTime      @default(dbgenerated("clock_timestamp()")) @map("changed_at") @db.Timestamptz(3)
+  account       Account       @relation(fields: [workspaceId, accountId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+  author        UserIdentity  @relation(fields: [changedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([accountId, changedAt])
+  @@map("account_status_change")
 }

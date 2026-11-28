@@ -318,10 +318,14 @@ describe('estados, crédito educacional e modalidade (PostgreSQL real)', () => {
       expect(await ownerOperation(ws, { modality: 'PIX_COPY_PASTE', ledger: false })).toBeUndefined();
     });
 
-    it('a execução não muda estado de conta nem de workspace', async () => {
+    // Desde a DEV-030, a execução muda o estado da conta (só pelo adaptador do PaymentExecution, conferido na arquitetura).
+    it('a execução muda só o estado da conta comum; nunca o do workspace nem o da contrapartida', async () => {
       const ws = await fundedWorkspace(h, [0n]);
-      expect(await sqlState(h.app.client.$executeRaw`UPDATE "account" SET "status" = 'BLOCKED' WHERE "id" = ${ws.accounts[0]}::uuid`)).toBe('42501');
       expect(await sqlState(h.app.client.$executeRaw`UPDATE "workspace" SET "status" = 'ARCHIVED' WHERE "id" = ${ws.workspaceId}::uuid`)).toBe('42501');
+      expect(await sqlState(h.app.client.$executeRaw`UPDATE "account" SET "status" = 'BLOCKED' WHERE "id" = ${ws.contra}::uuid`)).toBe('23514');
+      expect(await sqlState(h.app.client.$executeRaw`UPDATE "account" SET "status" = 'BLOCKED', "kind" = 'CONTRA' WHERE "id" = ${ws.accounts[0]}::uuid`)).toBe('42501');
+      await h.app.client.$executeRaw`UPDATE "account" SET "status" = 'BLOCKED' WHERE "id" = ${ws.accounts[0]}::uuid`;
+      expect(await h.db.client.account.findUniqueOrThrow({ where: { id: ws.accounts[0] ?? '' } })).toMatchObject({ status: 'BLOCKED', kind: 'STANDARD' });
     });
   });
 });

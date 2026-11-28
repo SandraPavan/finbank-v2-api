@@ -60,6 +60,7 @@ describe('papel de execução no PostgreSQL', () => {
     expect(tables.map((t) => t.grant)).toEqual([
       'account:INSERT',
       'account:SELECT',
+      'account_status_change:SELECT',
       'authentication_control:DELETE',
       'authentication_control:INSERT',
       'authentication_control:SELECT',
@@ -92,6 +93,13 @@ describe('papel de execução no PostgreSQL', () => {
        ORDER BY 1`;
     expect(columns.map((c) => c.grant)).toEqual([
       'account.balance_cents:UPDATE',
+      'account.status:UPDATE',
+      'account_status_change.account_id:INSERT',
+      'account_status_change.changed_by:INSERT',
+      'account_status_change.from_status:INSERT',
+      'account_status_change.justification:INSERT',
+      'account_status_change.to_status:INSERT',
+      'account_status_change.workspace_id:INSERT',
       'audit_record.actor_identity_id:INSERT',
       'audit_record.actor_profile:INSERT',
       'audit_record.actor_type:INSERT',
@@ -267,6 +275,9 @@ describe('papel de execução no PostgreSQL', () => {
       ['escolher o instante da solicitação', () => raw(`INSERT INTO "onboarding_request" ("created_at") VALUES (now())`)],
       ['alterar vínculo de conta', () => raw(`UPDATE "customer_account" SET "account_id" = "account_id"`)],
       ['apagar vínculo de conta', () => raw('DELETE FROM "customer_account"')],
+      ['alterar histórico de estado da conta', () => raw(`UPDATE "account_status_change" SET "justification" = 'outra justificativa'`)],
+      ['apagar histórico de estado da conta', () => raw('DELETE FROM "account_status_change"')],
+      ['escolher o instante do histórico', () => raw(`INSERT INTO "account_status_change" ("changed_at") VALUES (now())`)],
       ['apagar credencial temporária', () => raw('DELETE FROM "temporary_credential"')],
       ['estender credencial temporária', () => raw(`UPDATE "temporary_credential" SET "expires_at" = now()`)],
       ['trocar o hash da temporária', () => raw(`UPDATE "temporary_credential" SET "hash" = 'x'`)],

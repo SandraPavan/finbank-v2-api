@@ -55,6 +55,7 @@ describe('migrações Prisma em banco descartável', () => {
         'enum WorkspaceModality',
         'enum WorkspaceStatus',
         'model Account',
+        'model AccountStatusChange',
         'model AuditRecord',
         'model AuthenticationControl',
         'model CustomerAccount',
@@ -96,6 +97,7 @@ describe('migrações Prisma em banco descartável', () => {
       { migration_name: '20261203000000_onboarding_request', finished: true },
       { migration_name: '20261204000000_onboarding_approval', finished: true },
       { migration_name: '20261205000000_onboarding_policy_decision', finished: true },
+      { migration_name: '20261206000000_account_status_change', finished: true },
     ]);
   });
 
@@ -104,7 +106,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(again.code, again.output).toBe(0);
     const rows = await db.client.$queryRaw<{ total: number }[]>`
       SELECT count(*)::int AS total FROM _prisma_migrations`;
-    expect(rows[0]?.total).toBe(17);
+    expect(rows[0]?.total).toBe(18);
   });
 
   it('migrate status informa banco atualizado', async () => {
@@ -126,6 +128,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(tables.map((t) => t.table_name)).toEqual([
       '_prisma_migrations',
       'account',
+      'account_status_change',
       'audit_record',
       'authentication_control',
       'customer_account',
@@ -152,6 +155,7 @@ describe('migrações Prisma em banco descartável', () => {
     expect(checks.map((c) => c.conname)).toEqual([
       'account_contra_active',
       'account_standard_non_negative',
+      'account_status_change_shape',
       'audit_record_actor',
       'audit_record_codes',
       'audit_record_correlation_format',
@@ -197,6 +201,8 @@ describe('migrações Prisma em banco descartável', () => {
       SELECT tgname, tginitdeferred AS deferred FROM pg_trigger WHERE NOT tgisinternal ORDER BY tgname`;
     expect(triggers).toEqual([
       { tgname: 'account_identity_immutable', deferred: false },
+      { tgname: 'account_status_change_immutable', deferred: false },
+      { tgname: 'account_status_change_no_truncate', deferred: false },
       { tgname: 'audit_record_immutable', deferred: false },
       { tgname: 'audit_record_no_truncate', deferred: false },
       { tgname: 'customer_account_immutable', deferred: false },

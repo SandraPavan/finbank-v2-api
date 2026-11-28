@@ -2,6 +2,7 @@ import { type DynamicModule, Module } from '@nestjs/common';
 import { AccessModule } from './access/access.module.js';
 import { AdministrationModule } from './administration/administration.module.js';
 import { AuthenticationModule } from './authentication/authentication.module.js';
+import { BankAccountModule } from './bank-account/bank-account.module.js';
 import type { AppConfig } from './config/app-config.js';
 import { EducationModule } from './education/education.module.js';
 import { EnrollmentModule } from './enrollment/enrollment.module.js';
@@ -26,6 +27,7 @@ export class AppModule {
         EducationModule.forRoot(config),
         EnrollmentModule,
         authentication,
+        BankAccountModule,
         HealthModule,
         HttpModule,
         IdentityModule,
